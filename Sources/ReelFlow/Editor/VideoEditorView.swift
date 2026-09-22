@@ -217,7 +217,7 @@ struct VideoEditorView: View {
 
     /// The rail's entries: one panel per job, like VEED's left rail.
     private enum Tool: String, CaseIterable, Identifiable {
-        case clips, trim, subtitles, style, export
+        case clips, trim, subtitles, style, text, picture, music, export
         var id: String { rawValue }
 
         var title: String {
@@ -226,6 +226,9 @@ struct VideoEditorView: View {
             case .trim: "Trim"
             case .subtitles: "Subtitles"
             case .style: "Style"
+            case .text: "Text"
+            case .picture: "Picture"
+            case .music: "Music"
             case .export: "Export"
             }
         }
@@ -236,6 +239,9 @@ struct VideoEditorView: View {
             case .trim: "scissors"
             case .subtitles: "captions.bubble"
             case .style: "textformat"
+            case .text: "textbox"
+            case .picture: "photo"
+            case .music: "music.note"
             case .export: "square.and.arrow.up"
             }
         }
@@ -243,9 +249,12 @@ struct VideoEditorView: View {
         var help: String {
             switch self {
             case .clips: "The takes in this video, in the order they play"
-            case .trim: "Cut at the playhead and zoom the picture"
+            case .trim: "Cut at the playhead, set the speed, zoom the picture, pick the transition"
             case .subtitles: "Transcribe the takes and fix any words"
             case .style: "Pick the look of the subtitles"
+            case .text: "Titles laid over the video — a hook at the top, a name, a caption"
+            case .picture: "A logo or picture laid over the video"
+            case .music: "A song under the video, with its volume and fades"
             case .export: "Save the finished MP4"
             }
         }
@@ -282,7 +291,7 @@ struct VideoEditorView: View {
     }
 
     private var rail: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 3) {
             ForEach(Tool.allCases) { tool in railItem(tool) }
             Spacer(minLength: 0)
         }
@@ -306,6 +315,9 @@ struct VideoEditorView: View {
             case .clips: hasClips
             case .subtitles: hasCaptions
             case .export: hasExport
+            case .music: model.project?.music != nil
+            case .text: model.project?.overlays.contains { $0.kind == .text } ?? false
+            case .picture: model.project?.overlays.contains { $0.kind == .image } ?? false
             case .trim, .style: false
         }
         return Button { toggle(tool) } label: {
@@ -324,7 +336,7 @@ struct VideoEditorView: View {
                     .minimumScaleFactor(0.8)
             }
             .foregroundStyle(open ? accent : Color.white.opacity(0.75))
-            .frame(width: 54, height: 50)
+            .frame(width: 54, height: 44)
             .background(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .fill(open ? accent.opacity(0.16) : Color.clear)
@@ -346,6 +358,9 @@ struct VideoEditorView: View {
         case .trim: trimPanel
         case .subtitles: subtitlesPanel
         case .style: stylePanel
+        case .text: textPanel
+        case .picture: picturePanel
+        case .music: musicPanel
         case .export: exportPanel
         }
     }
@@ -626,6 +641,9 @@ struct VideoEditorView: View {
                     .allowsHitTesting(false)
                 captionHandle(for: cue, width: width, height: height)
             }
+            ForEach(model.overlaysNow) { overlay in
+                overlayPreview(overlay, width: width, height: height)
+            }
             if hasClips {
                 VStack {
                     Spacer()
@@ -725,6 +743,82 @@ struct VideoEditorView: View {
             .help(detached
                   ? "This line has its own spot — drag to move just this line; double-click to rejoin the others"
                   : "Drag to move the subtitles anywhere on the video — double-click to put them back")
+    }
+
+    /// A title or picture as it will be on the video, with a grab area:
+    /// drag to move it, click to pick it in its panel.
+    @State private var dragOverlayID: UUID?
+    @State private var dragOverlayAnchor: CaptionAnchor?
+    @State private var dragOverlayStart: CGPoint?
+    @State private var hoverOverlayID: UUID?
+
+    /// The overlay where the mouse has it mid-drag, or where it is.
+    private func dragged(_ overlay: Overlay) -> Overlay {
+        guard dragOverlayID == overlay.id, let dragOverlayAnchor else { return overlay }
+        var moved = overlay
+        moved.anchor = dragOverlayAnchor
+        return moved
+    }
+
+    @ViewBuilder
+    private func overlayPreview(_ overlay: Overlay, width: CGFloat, height: CGFloat) -> some View {
+        let render = model.renderSize
+        let scale = width / render.width
+        let shown = dragged(overlay)
+        let image = model.overlayImage(for: overlay)
+        let frame: CGRect = overlay.kind == .text
+            ? VideoExporter.captionFrame(for: shown.captionStyle.display(shown.text), style: shown.captionStyle,
+                                         anchor: shown.anchor, render: render).pill
+            : VideoExporter.pictureFrame(for: shown, image: image, render: render)
+        let centre = CGPoint(x: frame.midX * scale, y: height - frame.midY * scale)
+        let selected = overlay.id == model.selectedOverlayID
+        let active = selected || hoverOverlayID == overlay.id || dragOverlayID == overlay.id
+
+        if overlay.kind == .text {
+            CaptionLayerView(text: shown.text, highlight: nil, style: shown.captionStyle, anchor: shown.anchor,
+                             placement: .onVideo, render: render)
+                .frame(width: width, height: height)
+                .opacity(shown.opacity)
+                .allowsHitTesting(false)
+        } else if let image {
+            Image(nsImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: frame.width * scale, height: frame.height * scale)
+                .opacity(shown.opacity)
+                .position(centre)
+                .allowsHitTesting(false)
+        }
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .strokeBorder(style: StrokeStyle(lineWidth: selected ? 1.5 : 1, dash: [4, 3]))
+            .foregroundStyle(accent.opacity(active ? 0.9 : 0))
+            .frame(width: frame.width * scale + 8, height: frame.height * scale + 8)
+            .overlay(
+                MouseHandle(
+                    cursor: .openHand,
+                    onHover: { hoverOverlayID = $0 ? overlay.id : (hoverOverlayID == overlay.id ? nil : hoverOverlayID) },
+                    onTap: { model.selectedOverlayID = overlay.id; open(overlay.kind == .text ? .text : .picture) },
+                    onDrag: { translation in
+                        let from = dragOverlayStart ?? centre
+                        if dragOverlayStart == nil {
+                            dragOverlayStart = centre
+                            dragOverlayID = overlay.id
+                            model.selectedOverlayID = overlay.id
+                        }
+                        let to = CGPoint(x: from.x + translation.width, y: from.y + translation.height)
+                        dragOverlayAnchor = CaptionAnchor(x: min(max(0, to.x / width), 1),
+                                                          y: min(max(0, (height - to.y) / height), 1))
+                    },
+                    onEnd: {
+                        if let dragOverlayAnchor { model.setOverlayAnchor(overlay.id, dragOverlayAnchor) }
+                        dragOverlayID = nil
+                        dragOverlayAnchor = nil
+                        dragOverlayStart = nil
+                    }
+                )
+            )
+            .position(centre)
+            .help(overlay.kind == .text ? "Drag to move this title; click to edit it" : "Drag to move this picture; click to size it")
     }
 
     private func badge(_ text: String, tint: Color) -> some View {
@@ -1292,6 +1386,16 @@ struct VideoEditorView: View {
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                             .foregroundStyle(accent)
                     }
+                    if abs(clip.speed - 1) > 0.01 {
+                        Label(Self.speedLabel(clip.speed), systemImage: clip.speed < 1 ? "tortoise.fill" : "hare.fill")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundStyle(accent)
+                    }
+                    if clip.transition != .none {
+                        Image(systemName: clip.transition.icon).font(.system(size: 9))
+                            .foregroundStyle(accent.opacity(0.9))
+                            .help("\(clip.transition.name) into the next clip")
+                    }
                 }
                 .padding(.horizontal, 6).padding(.vertical, 3)
                 .background(Capsule().fill(Color.black.opacity(0.6)))
@@ -1323,7 +1427,8 @@ struct VideoEditorView: View {
                 var x: CGFloat = 0
                 while x < size.width {
                     let visible = min(tileWidth, size.width - x)
-                    let offset = clip.duration * Double((x + visible / 2) / size.width)
+                    // Source seconds along the clip, whatever its speed.
+                    let offset = clip.sourceLength * Double((x + visible / 2) / size.width)
                     if let frame = Filmstrip.frame(in: frames, at: clip.inPoint + offset, sourceDuration: clip.sourceDuration) {
                         var tile = context
                         tile.clip(to: Path(CGRect(x: x, y: 0, width: visible, height: height)))
@@ -1419,7 +1524,8 @@ struct VideoEditorView: View {
         }
     }
 
-    private func tile(_ symbol: String, _ title: String, help: String, destructive: Bool = false, action: @escaping () -> Void) -> some View {
+    private func tile(_ symbol: String, _ title: String, help: String, selected: Bool = false, destructive: Bool = false,
+                      action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 5) {
                 Image(systemName: symbol)
@@ -1429,15 +1535,15 @@ struct VideoEditorView: View {
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .lineLimit(1)
             }
-            .foregroundStyle(destructive ? Color.red.opacity(0.9) : .white.opacity(0.9))
+            .foregroundStyle(destructive ? Color.red.opacity(0.9) : selected ? accent : .white.opacity(0.9))
             .frame(width: 66, height: 48)
             .background(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(Color.white.opacity(0.08))
+                    .fill(selected ? accent.opacity(0.18) : Color.white.opacity(0.08))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+                    .strokeBorder(selected ? accent.opacity(0.8) : Color.white.opacity(0.1), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -1587,8 +1693,22 @@ struct VideoEditorView: View {
     }
 
     /// The cuts and the picture zoom, with the words that explain them.
+    private static func transitionHelp(_ transition: ClipTransition) -> String {
+        switch transition {
+        case .none: "A straight cut into the next clip"
+        case .dissolve: "The next clip fades in over this one's last moments"
+        case .fade: "Dip to black between this clip and the next"
+        }
+    }
+
+    private static func speedLabel(_ speed: Double) -> String {
+        String(format: speed == speed.rounded() ? "%.0f×" : "%.2g×", speed)
+    }
+
     private var trimPanel: some View {
         let zoom = model.selectedClip?.zoom ?? 1
+        let speed = model.selectedClip?.speed ?? 1
+        let transition = model.selectedClip?.transition ?? .none
         return toolCard(title: "TRIM", trailing: model.selectedClip.map { "\($0.name) · \(VideoEditorModel.clock($0.duration))" }, movable: true) {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Press Play and stop where you want to cut. Everything here works on the highlighted clip, at the playhead.")
@@ -1599,6 +1719,20 @@ struct VideoEditorView: View {
                     tile("scissors", "Split", help: "Cut the clip into two at the playhead — then remove the half you don't want") { model.splitAtPlayhead() }
                     tile("arrow.right.to.line", "Cut before", help: "Throw away everything in this clip before the playhead") { model.trimStartToPlayhead() }
                     tile("arrow.left.to.line", "Cut after", help: "Throw away everything in this clip after the playhead") { model.trimEndToPlayhead() }
+                }
+                controlGroup("SPEED  \(Self.speedLabel(speed))") {
+                    ForEach([0.5, 1.0, 1.5, 2.0, 3.0], id: \.self) { choice in
+                        tile(choice < 1 ? "tortoise.fill" : choice == 1 ? "figure.walk" : "hare.fill", Self.speedLabel(choice),
+                             help: choice == 1 ? "Play the highlighted clip as it was shot"
+                                : choice < 1 ? "Slow motion — the clip takes longer" : "Speed the clip up — the voice keeps its pitch",
+                             selected: abs(speed - choice) < 0.01) { model.setSpeed(choice) }
+                    }
+                }
+                controlGroup("TRANSITION TO THE NEXT CLIP") {
+                    ForEach(ClipTransition.allCases, id: \.self) { choice in
+                        tile(choice.icon, choice.name, help: Self.transitionHelp(choice),
+                             selected: transition == choice) { model.setTransition(choice) }
+                    }
                 }
                 controlGroup("PICTURE ZOOM  \(String(format: "%.1f×", zoom))") {
                     tile("minus.magnifyingglass", "Out", help: "Zoom out (or pinch on the video)") { model.zoom(by: 1 / 1.15) }
@@ -1690,6 +1824,245 @@ struct VideoEditorView: View {
                         pillButton("Show in Finder", icon: "folder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                         pillButton("Open", icon: "play.rectangle") { NSWorkspace.shared.open(url) }
                     }
+                }
+            }
+        }
+    }
+
+    // MARK: Music
+
+    private var musicPanel: some View {
+        let music = model.project?.music
+        let clipVolume = model.project?.clipVolume ?? 1
+        return toolCard(title: "MUSIC", trailing: music?.name) {
+            VStack(alignment: .leading, spacing: 12) {
+                if let music {
+                    HStack(spacing: 8) {
+                        Image(systemName: "music.note").foregroundStyle(accent)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(music.name)
+                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                .lineLimit(1)
+                            Text(VideoEditorModel.clock(music.duration))
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.5))
+                        }
+                        Spacer(minLength: 4)
+                        pillButton("Change", icon: "arrow.triangle.2.circlepath") { model.chooseMusic() }
+                    }
+                    sliderRow("MUSIC VOLUME", value: music.volume, in: 0...1, label: Self.percent) { model.setMusicVolume($0) }
+                    sliderRow("CLIP SOUND", value: clipVolume, in: 0...1, label: Self.percent) { model.setClipVolume($0) }
+                    sliderRow("FADE IN", value: music.fadeIn, in: 0...8, label: Self.seconds) { model.setMusicFade(in: $0) }
+                    sliderRow("FADE OUT", value: music.fadeOut, in: 0...8, label: Self.seconds) { model.setMusicFade(out: $0) }
+                    HStack(spacing: 10) {
+                        TimingField(label: "Start in song", value: music.startAt, accent: accent) { model.setMusicStart($0) }
+                        Toggle("Repeat", isOn: Binding(get: { music.loop }, set: { model.setMusicLoop($0) }))
+                            .toggleStyle(.switch)
+                            .controlSize(.small)
+                            .tint(accent)
+                            .font(.system(size: 11, design: .monospaced))
+                            .help("Play the song again when it ends before the video does")
+                    }
+                    Text("The song plays under every clip, fading in at the start and out at the end. Turn the clip sound down to keep the voice on top.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.white.opacity(0.65))
+                        .fixedSize(horizontal: false, vertical: true)
+                    pillButton("Remove music", icon: "trash") { model.removeMusic() }
+                } else {
+                    Text("Add a song under the whole video — a track you own or have a licence for. Its volume, fades and where it starts are set here.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.white.opacity(0.65))
+                        .fixedSize(horizontal: false, vertical: true)
+                    pillButton("Add music", icon: "music.note.list", prominent: true) { model.chooseMusic() }
+                        .disabled(!hasClips)
+                        .opacity(hasClips ? 1 : 0.45)
+                    sliderRow("CLIP SOUND", value: clipVolume, in: 0...1, label: Self.percent) { model.setClipVolume($0) }
+                }
+            }
+            .disabled(model.phase.isBusy)
+        }
+    }
+
+    private static func percent(_ value: Double) -> String { "\(Int((value * 100).rounded()))%" }
+    private static func seconds(_ value: Double) -> String { String(format: "%.1f s", value) }
+
+    /// A labelled slider that shows its value; every move goes straight
+    /// to the model.
+    private func sliderRow(_ title: String, value: Double, in range: ClosedRange<Double>,
+                           label: @escaping (Double) -> String, commit: @escaping (Double) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .kerning(1)
+                    .foregroundStyle(.white.opacity(0.4))
+                Spacer()
+                Text(label(value))
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(accent)
+            }
+            Slider(value: Binding(get: { value }, set: commit), in: range)
+                .tint(accent)
+                .controlSize(.small)
+        }
+    }
+
+    // MARK: Titles and pictures
+
+    private var textPanel: some View {
+        let titles = model.project?.overlays.filter { $0.kind == .text } ?? []
+        return toolCard(title: "TEXT", trailing: titles.isEmpty ? nil : "\(titles.count) title\(titles.count == 1 ? "" : "s")") {
+            VStack(alignment: .leading, spacing: 12) {
+                pillButton("Add title", icon: "plus", prominent: true) { model.addTitle() }
+                    .disabled(!hasClips)
+                    .opacity(hasClips ? 1 : 0.45)
+                if titles.isEmpty {
+                    emptyRow(icon: "textbox", text: "A hook at the top of the video, a name, a punchline. Add one, type over it, then drag it anywhere on the video.")
+                } else {
+                    Text("Click a title to edit it; drag it on the video to move it.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.white.opacity(0.65))
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 6) {
+                            ForEach(titles) { overlayRow($0) }
+                        }
+                    }
+                    .frame(maxHeight: .infinity)
+                }
+            }
+        }
+    }
+
+    private var picturePanel: some View {
+        let pictures = model.project?.overlays.filter { $0.kind == .image } ?? []
+        return toolCard(title: "PICTURE", trailing: pictures.isEmpty ? nil : "\(pictures.count)") {
+            VStack(alignment: .leading, spacing: 12) {
+                pillButton("Add picture", icon: "photo.badge.plus", prominent: true) { model.choosePicture() }
+                    .disabled(!hasClips)
+                    .opacity(hasClips ? 1 : 0.45)
+                if pictures.isEmpty {
+                    emptyRow(icon: "photo", text: "A logo in the corner, your handle, a sticker. PNGs with a see-through background work best. Drag it anywhere on the video.")
+                } else {
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 6) {
+                            ForEach(pictures) { overlayRow($0) }
+                        }
+                    }
+                    .frame(maxHeight: .infinity)
+                }
+            }
+        }
+    }
+
+    /// One title or picture in its panel: its name (a title is typed right
+    /// here), and when it's the chosen one, its size, opacity and timing.
+    private func overlayRow(_ overlay: Overlay) -> some View {
+        let selected = overlay.id == model.selectedOverlayID
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: overlay.kind == .text ? "textbox" : "photo")
+                    .foregroundStyle(selected ? accent : .white.opacity(0.6))
+                if overlay.kind == .text {
+                    TextField("Title", text: Binding(get: { overlay.text },
+                                                     set: { text in model.updateOverlay(overlay.id) { $0.text = text } }))
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.95))
+                        .onTapGesture { model.selectedOverlayID = overlay.id }
+                } else {
+                    Text(overlay.name)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Text("\(VideoEditorModel.clock(overlay.start))–\(overlay.end.map(VideoEditorModel.clock) ?? "end")")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.45))
+                Button { model.removeOverlay(overlay.id) } label: {
+                    Image(systemName: "trash").font(.system(size: 11, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.red.opacity(0.85))
+                .help("Take this off the video")
+            }
+            if selected {
+                if overlay.kind == .text {
+                    overlayStyleMenu(overlay)
+                    sliderRow("SIZE", value: overlay.scale, in: 0.3...3, label: { String(format: "%.1f×", $0) }) { v in
+                        model.updateOverlay(overlay.id) { $0.scale = v }
+                    }
+                } else {
+                    sliderRow("SIZE", value: overlay.width, in: 0.04...1, label: Self.percent) { v in
+                        model.updateOverlay(overlay.id) { $0.width = v }
+                    }
+                }
+                sliderRow("OPACITY", value: overlay.opacity, in: 0.05...1, label: Self.percent) { v in
+                    model.updateOverlay(overlay.id) { $0.opacity = v }
+                }
+                overlayTiming(overlay)
+            }
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(selected ? accent.opacity(0.14) : Color.white.opacity(0.05))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(selected ? accent.opacity(0.7) : Color.clear, lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            model.selectedOverlayID = overlay.id
+            if !overlay.isShowing(at: model.currentTime, duration: model.duration) { model.seek(to: overlay.start + 0.05) }
+        }
+    }
+
+    /// The look of a title: any of the subtitle styles.
+    private func overlayStyleMenu(_ overlay: Overlay) -> some View {
+        Menu {
+            ForEach(SubtitleStylePreset.Category.allCases) { category in
+                Section(category.rawValue) {
+                    ForEach(category.presets) { preset in
+                        Button {
+                            model.updateOverlay(overlay.id) { $0.style = preset.rawValue }
+                        } label: {
+                            if preset == overlay.stylePreset { Label(preset.name, systemImage: "checkmark") } else { Text(preset.name) }
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "textformat").font(.system(size: 11, weight: .semibold))
+                Text("Style: \(overlay.stylePreset.name)")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
+            }
+            .foregroundStyle(.white.opacity(0.9))
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.white.opacity(0.08)))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    /// When a title or picture is on screen: from a time to a time, or the
+    /// whole video.
+    private func overlayTiming(_ overlay: Overlay) -> some View {
+        let whole = overlay.start <= 0.001 && overlay.end == nil
+        return HStack(spacing: 6) {
+            TimingField(label: "From", value: overlay.start, accent: accent) { v in
+                model.updateOverlay(overlay.id) { $0.start = v }
+            }
+            TimingField(label: "To", value: overlay.end ?? model.duration, accent: accent) { v in
+                let duration = model.duration
+                model.updateOverlay(overlay.id) { $0.end = v >= duration - 0.05 ? nil : v }
+            }
+            Spacer(minLength: 0)
+            if !whole {
+                pillButton("Whole video", icon: "arrow.left.and.right") {
+                    model.updateOverlay(overlay.id) { $0.start = 0; $0.end = nil }
                 }
             }
         }

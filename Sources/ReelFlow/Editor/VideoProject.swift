@@ -54,12 +54,19 @@ struct EditClip: Codable, Equatable, Identifiable {
     /// the picture's spare edge so black never shows.
     var panX: Double
     var panY: Double
+    /// How fast the clip plays: 1 is as shot, 2 twice as fast, 0.5 slow
+    /// motion. The clip's timeline length is its source length divided by
+    /// this; cues stay in source seconds and are mapped through it.
+    var speed: Double
+    /// How this clip hands over to the next one.
+    var transition: ClipTransition
 
     static let minZoom = 1.0
     static let maxZoom = 4.0
+    static let speeds: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2, 3]
 
     init(id: UUID = UUID(), source: URL, sourceDuration: Double, inPoint: Double = 0, outPoint: Double? = nil, cues: [CaptionCue] = [],
-         zoom: Double = 1, panX: Double = 0, panY: Double = 0) {
+         zoom: Double = 1, panX: Double = 0, panY: Double = 0, speed: Double = 1, transition: ClipTransition = .none) {
         self.id = id
         self.source = source
         self.sourceDuration = sourceDuration
@@ -69,9 +76,11 @@ struct EditClip: Codable, Equatable, Identifiable {
         self.zoom = zoom
         self.panX = panX
         self.panY = panY
+        self.speed = speed
+        self.transition = transition
     }
 
-    private enum CodingKeys: String, CodingKey { case id, source, sourceDuration, inPoint, outPoint, cues, zoom, panX, panY }
+    private enum CodingKeys: String, CodingKey { case id, source, sourceDuration, inPoint, outPoint, cues, zoom, panX, panY, speed, transition }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -85,10 +94,132 @@ struct EditClip: Codable, Equatable, Identifiable {
         zoom = try c.decodeIfPresent(Double.self, forKey: .zoom) ?? 1
         panX = try c.decodeIfPresent(Double.self, forKey: .panX) ?? 0
         panY = try c.decodeIfPresent(Double.self, forKey: .panY) ?? 0
+        // Projects saved before speed and transitions existed play as shot, cut to cut.
+        speed = try c.decodeIfPresent(Double.self, forKey: .speed) ?? 1
+        transition = try c.decodeIfPresent(ClipTransition.self, forKey: .transition) ?? .none
     }
 
-    var duration: Double { max(0, outPoint - inPoint) }
+    /// The stretch of source footage used, in source seconds.
+    var sourceLength: Double { max(0, outPoint - inPoint) }
+    /// How long the clip runs on the timeline, at its speed.
+    var duration: Double { sourceLength / max(0.01, speed) }
     var name: String { source.deletingPathExtension().lastPathComponent }
+
+    /// Source second for a moment `local` seconds into the clip on the timeline.
+    func sourceTime(atLocal local: Double) -> Double { inPoint + local * speed }
+    /// Timeline seconds into the clip for a source second.
+    func localTime(atSource source: Double) -> Double { (source - inPoint) / max(0.01, speed) }
+}
+
+/// How one clip gives way to the next. `dissolve` fades the next clip in
+/// over this clip's continuing footage (the handle after its out point);
+/// `fade` dips to black between them. Saved by `rawValue`.
+enum ClipTransition: String, Codable, CaseIterable {
+    case none, dissolve, fade
+
+    /// How long a transition takes, when both clips have the room.
+    static let length = 0.6
+
+    var name: String {
+        switch self {
+        case .none: "Cut"
+        case .dissolve: "Dissolve"
+        case .fade: "Fade"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .none: "rectangle.split.2x1"
+        case .dissolve: "circle.lefthalf.filled"
+        case .fade: "moon.fill"
+        }
+    }
+}
+
+/// A song under the whole video. `startAt` is where in the song it
+/// begins; a song shorter than the video repeats when `loop` is on.
+struct MusicTrack: Codable, Equatable {
+    var source: URL
+    var duration: Double
+    var volume: Double = 0.35
+    var fadeIn: Double = 1
+    var fadeOut: Double = 2
+    var startAt: Double = 0
+    var loop = true
+
+    var name: String { source.deletingPathExtension().lastPathComponent }
+}
+
+/// A title or a picture laid over the video for part or all of it.
+/// Position is a `CaptionAnchor` (centre as a share of the frame, y from
+/// the bottom); times are timeline seconds, `end` nil meaning "to the end".
+struct Overlay: Codable, Equatable, Identifiable {
+    enum Kind: String, Codable { case text, image }
+
+    var id: UUID
+    var kind: Kind
+    /// The title, for `.text`.
+    var text: String
+    /// The picture, for `.image`. Referenced, not copied.
+    var image: URL?
+    var anchor: CaptionAnchor
+    /// `.image`: the picture's width as a share of the frame width.
+    var width: Double
+    /// `.text`: the look, a `SubtitleStylePreset` by name.
+    var style: String
+    /// `.text`: how big, as a multiple of the style's subtitle size.
+    var scale: Double
+    var opacity: Double
+    var start: Double
+    var end: Double?
+
+    init(id: UUID = UUID(), kind: Kind, text: String = "", image: URL? = nil, anchor: CaptionAnchor,
+         width: Double = 0.25, style: String = SubtitleStylePreset.default.rawValue, scale: Double = 1,
+         opacity: Double = 1, start: Double = 0, end: Double? = nil) {
+        self.id = id
+        self.kind = kind
+        self.text = text
+        self.image = image
+        self.anchor = anchor
+        self.width = width
+        self.style = style
+        self.scale = scale
+        self.opacity = opacity
+        self.start = start
+        self.end = end
+    }
+
+    static func title(_ text: String, style: SubtitleStylePreset) -> Overlay {
+        Overlay(kind: .text, text: text, anchor: CaptionAnchor(x: 0.5, y: 0.84), style: style.rawValue)
+    }
+
+    static func picture(_ url: URL) -> Overlay {
+        Overlay(kind: .image, image: url, anchor: CaptionAnchor(x: 0.85, y: 0.92), width: 0.18)
+    }
+
+    var stylePreset: SubtitleStylePreset { SubtitleStylePreset(rawValue: style) ?? .default }
+
+    /// The subtitle style scaled for a title: bigger or smaller letters,
+    /// and free to run nearly the full frame width.
+    var captionStyle: CaptionStyle {
+        var s = stylePreset.style
+        s.fontSize = s.fontSize * CGFloat(scale)
+        s.maxWidthShare = 0.92
+        return s
+    }
+
+    var name: String {
+        switch kind {
+        case .text: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Title" : text
+        case .image: image?.lastPathComponent ?? "Picture"
+        }
+    }
+
+    /// Whether the overlay is on screen at `time`, on a video `duration` long.
+    func isShowing(at time: Double, duration: Double) -> Bool {
+        time >= start && time < (end ?? duration)
+    }
 }
 
 /// A caption placed on the finished video, in timeline seconds.
@@ -149,6 +280,12 @@ struct VideoProject: Codable, Equatable {
     var captionAnchor: CaptionAnchor?
     /// The shape of the finished video — a `FrameFormat` by id.
     var frameFormat: String
+    /// A song under the whole video, if one was added.
+    var music: MusicTrack?
+    /// How loud the clips' own sound is, 0…1. Turned down under music.
+    var clipVolume: Double = 1
+    /// Titles and pictures laid over the video, back to front.
+    var overlays: [Overlay] = []
 
     init(name: String, clips: [EditClip] = [], created: Date = Date(), transcripts: [String: [SpokenWord]] = [:],
          spokenLanguage: String = VideoProject.defaultSpokenLanguage, translationLanguage: String? = nil,
@@ -165,7 +302,7 @@ struct VideoProject: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case version, name, clips, created, transcripts, transcriptVersion, spokenLanguage, translationLanguage, subtitleStyle, captionAnchor,
-             frameFormat
+             frameFormat, music, clipVolume, overlays
     }
 
     init(from decoder: Decoder) throws {
@@ -184,6 +321,9 @@ struct VideoProject: Codable, Equatable {
         captionAnchor = try c.decodeIfPresent(CaptionAnchor.self, forKey: .captionAnchor)
         // Projects saved before the picker existed were all Reels-shaped.
         frameFormat = try c.decodeIfPresent(String.self, forKey: .frameFormat) ?? FrameFormat.default.id
+        music = try c.decodeIfPresent(MusicTrack.self, forKey: .music)
+        clipVolume = try c.decodeIfPresent(Double.self, forKey: .clipVolume) ?? 1
+        overlays = try c.decodeIfPresent([Overlay].self, forKey: .overlays) ?? []
     }
 
     var stylePreset: SubtitleStylePreset { SubtitleStylePreset(rawValue: subtitleStyle) ?? .default }
@@ -219,7 +359,7 @@ struct VideoProject: Codable, Equatable {
         for (index, clip) in clips.enumerated() {
             if time < t + clip.duration || index == clips.count - 1 {
                 let local = min(max(time - t, 0), clip.duration)
-                return (index, clip.inPoint + local)
+                return (index, clip.sourceTime(atLocal: local))
             }
             t += clip.duration
         }
@@ -231,8 +371,8 @@ struct VideoProject: Codable, Equatable {
         var out: [TimelineCue] = []
         for (clip, start) in zip(clips, clipStarts) {
             for cue in clip.cues where cue.end > clip.inPoint && cue.start < clip.outPoint {
-                let s = max(cue.start, clip.inPoint) - clip.inPoint + start
-                let e = min(cue.end, clip.outPoint) - clip.inPoint + start
+                let s = clip.localTime(atSource: max(cue.start, clip.inPoint)) + start
+                let e = clip.localTime(atSource: min(cue.end, clip.outPoint)) + start
                 if e - s > 0.01 {
                     out.append(TimelineCue(id: cue.id, start: s, end: e, text: cue.text, translation: cue.translation, anchor: cue.anchor))
                 }
@@ -256,7 +396,7 @@ struct VideoProject: Codable, Equatable {
             guard let source = clip.cues.first(where: { $0.id == cue.id }) else { continue }
             let heard = (transcripts[clip.source.path] ?? []).filter { $0.start >= source.start - 0.01 && $0.start < source.end }
             guard heard.count == count else { return even }
-            return heard.map { min(cue.end, max(cue.start, $0.start - clip.inPoint + start)) }
+            return heard.map { min(cue.end, max(cue.start, clip.localTime(atSource: $0.start) + start)) }
         }
         return even
     }
@@ -295,6 +435,8 @@ struct VideoProject: Codable, Equatable {
         second.id = UUID()
         second.inPoint = sourceTime
         first.outPoint = sourceTime
+        // The hand-over to the next clip belongs to whichever half ends there.
+        first.transition = .none
         first.cues = first.cues.filter { $0.start < sourceTime }.map { cue in
             var c = cue
             c.end = min(c.end, sourceTime)
@@ -327,6 +469,7 @@ struct VideoProject: Codable, Equatable {
         var joined = clips[index]
         let tail = clips[index + 1]
         joined.outPoint = tail.outPoint
+        joined.transition = tail.transition
         joined.cues = (joined.cues + tail.cues).sorted { $0.start < $1.start }
         clips.replaceSubrange(index...(index + 1), with: [joined])
         return true
@@ -390,6 +533,49 @@ struct VideoProject: Codable, Equatable {
         clips[index].panY = y
     }
 
+    mutating func setSpeed(_ speed: Double, for clipID: UUID) {
+        guard let index = clips.firstIndex(where: { $0.id == clipID }) else { return }
+        clips[index].speed = min(max(0.25, speed), 4)
+    }
+
+    mutating func setTransition(_ transition: ClipTransition, for clipID: UUID) {
+        guard let index = clips.firstIndex(where: { $0.id == clipID }) else { return }
+        clips[index].transition = transition
+    }
+
+    // MARK: Music and overlays
+
+    mutating func setMusic(_ change: (inout MusicTrack) -> Void) {
+        guard var m = music else { return }
+        change(&m)
+        m.volume = min(max(0, m.volume), 1)
+        m.fadeIn = min(max(0, m.fadeIn), 10)
+        m.fadeOut = min(max(0, m.fadeOut), 10)
+        m.startAt = min(max(0, m.startAt), max(0, m.duration - 0.5))
+        music = m
+    }
+
+    mutating func addOverlay(_ overlay: Overlay) { overlays.append(overlay) }
+
+    mutating func removeOverlay(_ id: UUID) { overlays.removeAll { $0.id == id } }
+
+    mutating func updateOverlay(_ id: UUID, _ change: (inout Overlay) -> Void) {
+        guard let i = overlays.firstIndex(where: { $0.id == id }) else { return }
+        change(&overlays[i])
+        overlays[i].width = min(max(0.04, overlays[i].width), 1)
+        overlays[i].scale = min(max(0.3, overlays[i].scale), 3)
+        overlays[i].opacity = min(max(0.05, overlays[i].opacity), 1)
+        overlays[i].start = min(max(0, overlays[i].start), max(0, duration))
+        if let end = overlays[i].end {
+            overlays[i].end = end <= overlays[i].start + 0.1 ? nil : min(end, duration)
+        }
+    }
+
+    /// The overlays on screen at `time`, back to front.
+    func overlays(at time: Double) -> [Overlay] {
+        overlays.filter { $0.isShowing(at: time, duration: duration) }
+    }
+
     mutating func setCueText(_ cueID: UUID, _ text: String) {
         for c in clips.indices {
             if let i = clips[c].cues.firstIndex(where: { $0.id == cueID }) {
@@ -428,7 +614,7 @@ struct VideoProject: Codable, Equatable {
         for (c, clipStart) in zip(clips.indices, clipStarts) {
             guard let i = clips[c].cues.firstIndex(where: { $0.id == cueID }) else { continue }
             let clip = clips[c]
-            let toSource = { (t: Double) in min(max(t - clipStart + clip.inPoint, clip.inPoint), clip.outPoint) }
+            let toSource = { (t: Double) in min(max(clip.sourceTime(atLocal: t - clipStart), clip.inPoint), clip.outPoint) }
             let s = toSource(start)
             let e = max(toSource(end), min(s + 0.1, clip.outPoint))
             clips[c].cues[i].start = s

@@ -16,7 +16,7 @@ struct ReelFlowApp: App {
     var body: some Scene {
         WindowGroup("ReelFlow") {
             VideoEditorView(model: model, accent: Self.accent)
-                .frame(minWidth: 960, minHeight: 600)
+                .frame(minWidth: 960, minHeight: 700)
                 .background(Color(red: 0.094, green: 0.094, blue: 0.098))
                 .preferredColorScheme(.dark)
         }

@@ -77,6 +77,12 @@ final class VideoEditorModel: ObservableObject {
     private var lastPublishedTick = -1
 
     let player = AVPlayer()
+    /// What the player is showing, kept so a volume change can remix the
+    /// sound without rebuilding the whole preview.
+    private var previewTimeline: VideoExporter.Timeline?
+    /// The title or picture the user is working on, outlined in the preview.
+    @Published var selectedOverlayID: UUID?
+    private var overlayImages: [String: NSImage] = [:]
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var previewGeneration = 0
@@ -105,6 +111,12 @@ final class VideoEditorModel: ObservableObject {
         return project?.clips.first { $0.id == selectedClipID }
     }
     var exportsFolder: URL? { projectFolder?.appendingPathComponent("exports", isDirectory: true) }
+    /// The titles and pictures on screen at the playhead.
+    var overlaysNow: [Overlay] { project?.overlays(at: currentTime) ?? [] }
+    var selectedOverlay: Overlay? {
+        guard let selectedOverlayID else { return nil }
+        return project?.overlays.first { $0.id == selectedOverlayID }
+    }
 
     // MARK: Projects
 
@@ -165,6 +177,9 @@ final class VideoEditorModel: ObservableObject {
         project = nil
         projectFolder = nil
         selectedClipID = nil
+        selectedOverlayID = nil
+        previewTimeline = nil
+        overlayImages = [:]
         currentTime = 0
         phase = .idle
         note = nil
@@ -176,6 +191,8 @@ final class VideoEditorModel: ObservableObject {
         self.project = project
         projectFolder = folder
         selectedClipID = project.clips.first?.id
+        selectedOverlayID = nil
+        overlayImages = [:]
         phase = .idle
         currentTime = 0
         lastExport = nil
@@ -428,6 +445,170 @@ final class VideoEditorModel: ObservableObject {
                   let (natural, preferred) = try? await track.load(.naturalSize, .preferredTransform) else { return }
             setZoom(VideoExporter.fillZoom(naturalSize: natural, preferredTransform: preferred, into: render))
         }
+    }
+
+    // MARK: Speed and transitions
+
+    /// Play the highlighted clip faster or slower. The preview is rebuilt:
+    /// the composition itself is stretched.
+    func setSpeed(_ speed: Double) {
+        guard let clip = selectedClip, abs(clip.speed - speed) > 0.001 else { return }
+        let start = project?.start(of: clip.id) ?? currentTime
+        edit(seekTo: start) { $0.setSpeed(speed, for: clip.id) }
+    }
+
+    /// How the highlighted clip hands over to the one after it.
+    func setTransition(_ transition: ClipTransition) {
+        guard let clip = selectedClip, clip.transition != transition else { return }
+        // Land just before the seam so the change is visible on Play.
+        let seam = (project?.start(of: clip.id) ?? 0) + clip.duration
+        edit(seekTo: max(0, seam - 1.5)) { $0.setTransition(transition, for: clip.id) }
+    }
+
+    // MARK: Music
+
+    static let musicTypes: [UTType] = [.audio, .mp3, .mpeg4Audio, .wav, .aiff, .audiovisualContent]
+
+    /// The Add music button: a native picker for a song.
+    func chooseMusic() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = Self.musicTypes
+        panel.message = "Choose a song to play under the video"
+        panel.prompt = "Add music"
+        panel.begin { [weak self] response in
+            guard response == .OK, let self, let url = panel.url else { return }
+            self.addMusic(url)
+        }
+    }
+
+    func addMusic(_ url: URL) {
+        Task {
+            let asset = AVURLAsset(url: url)
+            guard let seconds = try? await asset.load(.duration).seconds, seconds > 0,
+                  let hasAudio = try? await !asset.loadTracks(withMediaType: .audio).isEmpty, hasAudio else {
+                note = "Couldn't read any sound in \(url.lastPathComponent)."
+                return
+            }
+            edit {
+                var track = MusicTrack(source: url, duration: seconds)
+                if let old = $0.music {
+                    track.volume = old.volume
+                    track.fadeIn = old.fadeIn
+                    track.fadeOut = old.fadeOut
+                    track.loop = old.loop
+                }
+                $0.music = track
+                // Voice over music: the clips' own sound comes down a little
+                // the first time a song is added, unless the user set it.
+                if $0.clipVolume >= 0.999 { $0.clipVolume = 0.8 }
+            }
+            note = "Added \(url.lastPathComponent) under the video."
+        }
+    }
+
+    func removeMusic() {
+        guard project?.music != nil else { return }
+        edit { $0.music = nil }
+    }
+
+    /// Volume and fades change the sound mix only; the player keeps playing.
+    func setMusicVolume(_ volume: Double) {
+        edit(rebuild: false) { $0.setMusic { $0.volume = volume } }
+        refreshAudioMix()
+    }
+
+    func setMusicFade(in fadeIn: Double? = nil, out fadeOut: Double? = nil) {
+        edit(rebuild: false) { $0.setMusic { m in
+            if let fadeIn { m.fadeIn = fadeIn }
+            if let fadeOut { m.fadeOut = fadeOut }
+        } }
+        refreshAudioMix()
+    }
+
+    /// Where in the song it starts, and whether it repeats — both change
+    /// what's on the track, so the preview is rebuilt.
+    func setMusicStart(_ seconds: Double) {
+        guard let music = project?.music, abs(music.startAt - seconds) > 0.01 else { return }
+        edit { $0.setMusic { $0.startAt = seconds } }
+    }
+
+    func setMusicLoop(_ loop: Bool) {
+        guard let music = project?.music, music.loop != loop else { return }
+        edit { $0.setMusic { $0.loop = loop } }
+    }
+
+    /// How loud the clips' own sound is.
+    func setClipVolume(_ volume: Double) {
+        edit(rebuild: false) { $0.clipVolume = min(max(0, volume), 1) }
+        refreshAudioMix()
+    }
+
+    private func refreshAudioMix() {
+        guard let project, let previewTimeline else { return }
+        player.currentItem?.audioMix = VideoExporter.audioMix(for: project, timeline: previewTimeline)
+    }
+
+    // MARK: Titles and pictures
+
+    static let pictureTypes: [UTType] = [.png, .jpeg, .heic, .tiff, .gif, .bmp, .webP, .image]
+
+    /// A new title at the top of the video, in the project's subtitle
+    /// look, for the whole video — ready to be typed over and dragged.
+    func addTitle() {
+        guard project != nil else { return }
+        let overlay = Overlay.title("Your title here", style: stylePreset)
+        edit(rebuild: false) { $0.addOverlay(overlay) }
+        selectedOverlayID = overlay.id
+    }
+
+    /// The Add picture button: a native picker for a logo or image.
+    func choosePicture() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = Self.pictureTypes
+        panel.message = "Choose a logo or picture to lay over the video"
+        panel.prompt = "Add picture"
+        panel.begin { [weak self] response in
+            guard response == .OK, let self, let url = panel.url else { return }
+            self.addPicture(url)
+        }
+    }
+
+    func addPicture(_ url: URL) {
+        guard project != nil else { return }
+        guard NSImage(contentsOf: url) != nil else {
+            note = "Couldn't read \(url.lastPathComponent) as a picture."
+            return
+        }
+        let overlay = Overlay.picture(url)
+        edit(rebuild: false) { $0.addOverlay(overlay) }
+        selectedOverlayID = overlay.id
+    }
+
+    func updateOverlay(_ id: UUID, _ change: @escaping (inout Overlay) -> Void) {
+        edit(rebuild: false) { $0.updateOverlay(id, change) }
+    }
+
+    /// Dragged in the preview to a new spot.
+    func setOverlayAnchor(_ id: UUID, _ anchor: CaptionAnchor) {
+        updateOverlay(id) { $0.anchor = anchor }
+    }
+
+    func removeOverlay(_ id: UUID) {
+        edit(rebuild: false) { $0.removeOverlay(id) }
+        if selectedOverlayID == id { selectedOverlayID = nil }
+    }
+
+    /// The picture behind an image overlay, read once per file.
+    func overlayImage(for overlay: Overlay) -> NSImage? {
+        guard overlay.kind == .image, let url = overlay.image else { return nil }
+        if let cached = overlayImages[url.path] { return cached }
+        guard let image = NSImage(contentsOf: url) else { return nil }
+        overlayImages[url.path] = image
+        return image
     }
 
     // MARK: Frame
@@ -719,12 +900,17 @@ final class VideoEditorModel: ObservableObject {
                 guard generation == previewGeneration else { return }
                 let item = AVPlayerItem(asset: timeline.composition)
                 item.videoComposition = timeline.videoComposition
+                item.audioMix = VideoExporter.audioMix(for: project, timeline: timeline)
+                // Sped-up or slowed clips keep their pitch.
+                item.audioTimePitchAlgorithm = .spectral
+                previewTimeline = timeline
                 player.replaceCurrentItem(with: item)
                 seek(to: min(target, max(0, project.duration - 0.05)))
                 if wasPlaying { player.play() }
             } catch VideoExporter.Failure.noClips {
                 guard generation == previewGeneration else { return }
                 player.replaceCurrentItem(with: nil)
+                previewTimeline = nil
                 currentTime = 0
             } catch {
                 guard generation == previewGeneration else { return }
@@ -773,7 +959,8 @@ final class VideoEditorModel: ObservableObject {
         phase = .exporting(0)
         Task {
             do {
-                try await VideoExporter.export(project, style: style, to: movie) { [weak self] p in
+                try await VideoExporter.export(project, style: style, to: movie,
+                                               images: { [weak self] in self?.overlayImage(for: $0) }) { [weak self] p in
                     self?.phase = .exporting(p)
                 }
                 try? project.srt.write(to: base.appendingPathExtension("srt"), atomically: true, encoding: .utf8)
