@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+    <key>CFBundleExecutable</key><string>ReelFlow</string>
+    <key>CFBundleIdentifier</key><string>io.reelflow.ReelFlow</string>
+    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+    <key>CFBundleName</key><string>ReelFlow</string>
+    <key>CFBundleDisplayName</key><string>ReelFlow</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>0.1.0</string>
+    <key>CFBundleVersion</key><string>1</string>
+    <key>LSMinimumSystemVersion</key><string>14.0</string>
+    <key>LSApplicationCategoryType</key><string>public.app-category.video</string>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>NSSpeechRecognitionUsageDescription</key><string>ReelFlow transcribes the speech in your clips into subtitles, on this Mac.</string>
+    <key>NSRemovableVolumesUsageDescription</key><string>ReelFlow imports takes and screen recordings straight from external drives and SD cards.</string>
+    <key>NSDesktopFolderUsageDescription</key><string>ReelFlow imports the clips you choose from your Desktop.</string>
+    <key>NSDocumentsFolderUsageDescription</key><string>ReelFlow imports the clips you choose from your Documents.</string>
+    <key>NSDownloadsFolderUsageDescription</key><string>ReelFlow imports the clips you choose from your Downloads.</string>
+</dict>
+</plist>
