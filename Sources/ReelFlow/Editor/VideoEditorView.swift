@@ -1730,7 +1730,7 @@ struct VideoEditorView: View {
                     tile("arrow.left.to.line", "Cut after", help: "Throw away everything in this clip after the playhead") { model.trimEndToPlayhead() }
                 }
                 controlGroup("SPEED  \(Self.speedLabel(speed))") {
-                    ForEach([0.5, 1.0, 1.5, 2.0, 3.0], id: \.self) { choice in
+                    ForEach([0.5, 1.0, 1.5, 2.0], id: \.self) { choice in
                         tile(Self.speedIcon(choice), Self.speedLabel(choice), help: Self.speedHelp(choice),
                              selected: abs(speed - choice) < 0.01) { model.setSpeed(choice) }
                     }
