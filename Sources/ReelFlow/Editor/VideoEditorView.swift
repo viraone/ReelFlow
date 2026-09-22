@@ -1701,6 +1701,15 @@ struct VideoEditorView: View {
         }
     }
 
+    private static func speedIcon(_ speed: Double) -> String {
+        speed < 1 ? "tortoise.fill" : speed == 1 ? "figure.walk" : "hare.fill"
+    }
+
+    private static func speedHelp(_ speed: Double) -> String {
+        if speed == 1 { return "Play the highlighted clip as it was shot" }
+        return speed < 1 ? "Slow motion — the clip takes longer" : "Speed the clip up — the voice keeps its pitch"
+    }
+
     private static func speedLabel(_ speed: Double) -> String {
         String(format: speed == speed.rounded() ? "%.0f×" : "%.2g×", speed)
     }
@@ -1722,9 +1731,7 @@ struct VideoEditorView: View {
                 }
                 controlGroup("SPEED  \(Self.speedLabel(speed))") {
                     ForEach([0.5, 1.0, 1.5, 2.0, 3.0], id: \.self) { choice in
-                        tile(choice < 1 ? "tortoise.fill" : choice == 1 ? "figure.walk" : "hare.fill", Self.speedLabel(choice),
-                             help: choice == 1 ? "Play the highlighted clip as it was shot"
-                                : choice < 1 ? "Slow motion — the clip takes longer" : "Speed the clip up — the voice keeps its pitch",
+                        tile(Self.speedIcon(choice), Self.speedLabel(choice), help: Self.speedHelp(choice),
                              selected: abs(speed - choice) < 0.01) { model.setSpeed(choice) }
                     }
                 }
