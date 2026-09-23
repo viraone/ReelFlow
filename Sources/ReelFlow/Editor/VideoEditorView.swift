@@ -129,6 +129,18 @@ struct VideoEditorView: View {
                                     .disabled(empty)
                                     .help(empty ? "This project has no clips in it — drop a video on the window to start a new one"
                                                 : "Open this project")
+                                    .overlay(alignment: .trailing) {
+                                        Button { deletingProject = folder } label: {
+                                            Image(systemName: "trash")
+                                                .font(.system(size: 12, weight: .semibold))
+                                                .foregroundStyle(Color.red.opacity(0.85))
+                                                .frame(width: 26, height: 26)
+                                                .contentShape(Rectangle())
+                                        }
+                                        .buttonStyle(.plain)
+                                        .padding(.trailing, empty ? 8 : 30)
+                                        .help("Delete this project (its video files stay)")
+                                    }
                                 }
                             }
                         }
@@ -146,7 +158,20 @@ struct VideoEditorView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity)
+        .confirmationDialog("Delete \u{201C}\(deletingProject?.lastPathComponent ?? "")\u{201D}?",
+                            isPresented: Binding(get: { deletingProject != nil }, set: { if !$0 { deletingProject = nil } }),
+                            titleVisibility: .visible) {
+            Button("Delete project", role: .destructive) {
+                if let folder = deletingProject { model.deleteProject(at: folder) }
+                deletingProject = nil
+            }
+            Button("Keep it", role: .cancel) { deletingProject = nil }
+        } message: {
+            Text("The project folder — its settings, subtitles and exports — goes to the Trash. Your original video files are not touched.")
+        }
     }
+
+    @State private var deletingProject: URL?
 
     private func createProject() {
         let name = newProjectName.trimmingCharacters(in: .whitespaces)
@@ -221,34 +246,18 @@ struct VideoEditorView: View {
             chosenTool = nil
             panelHidden = false
         }
-        // Removing a clip is the one edit with no undo: it takes the cuts
-        // and subtitles with it, so it asks first.
-        .confirmationDialog(removeTitle, isPresented: $confirmingRemove, titleVisibility: .visible) {
-            Button(removeIsWholeVideo ? "Remove the whole video" : "Remove this piece", role: .destructive) { model.removeSelectedClip() }
+        // Removing a piece is instant — ⌘Z or the Undo pill brings it
+        // back. Only the last clip asks, since that empties the project.
+        .confirmationDialog("Remove the whole video?", isPresented: $confirmingRemove, titleVisibility: .visible) {
+            Button("Remove the whole video", role: .destructive) { model.removeSelectedClip() }
             Button("Keep it", role: .cancel) {}
         } message: {
-            Text(removeMessage)
+            Text("This is the only clip on the timeline. Removing it leaves the project empty — the file stays on your Mac, and ⌘Z brings the clip back.")
         }
     }
 
-    /// Whether Remove would empty the timeline: the highlighted clip is
-    /// the only one.
-    private var removeIsWholeVideo: Bool { (model.project?.clips.count ?? 0) <= 1 }
-
-    private var removeTitle: String {
-        guard let clip = model.selectedClip else { return "Remove this clip?" }
-        if removeIsWholeVideo { return "Remove the whole video?" }
-        let start = model.project?.start(of: clip.id) ?? 0
-        return "Remove the \(VideoEditorModel.clock(clip.duration)) piece at \(VideoEditorModel.clock(start))?"
-    }
-
-    private var removeMessage: String {
-        let count = model.project?.clips.count ?? 0
-        if removeIsWholeVideo {
-            return "This is the only clip on the timeline. Removing it leaves the project empty — the file stays on your Mac, but you'd have to import it again to get it back."
-        }
-        let others = count - 1
-        return "Only this piece of \u{201C}\(model.selectedClip?.name ?? "the clip")\u{201D} comes off the timeline, with its cuts and subtitles. The other \(others) piece\(others == 1 ? "" : "s") stay\(others == 1 ? "s" : "") as they are."
+    private func removeSelectedClip() {
+        if (model.project?.clips.count ?? 0) <= 1 { confirmingRemove = true } else { model.removeSelectedClip() }
     }
 
     @State private var confirmingRemove = false
@@ -413,20 +422,21 @@ struct VideoEditorView: View {
         HStack(spacing: 10) {
             Button { model.closeProject() } label: {
                 Label("Projects", systemImage: "chevron.left")
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.white.opacity(0.6))
+            .foregroundStyle(.white.opacity(0.65))
             .help("Back to the project list")
 
             Text(model.project?.name ?? "")
-                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                .font(.system(size: 17, weight: .bold, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.95))
                 .lineLimit(1)
-            Button { model.revealProject() } label: { Image(systemName: "folder") }
+            Button { model.revealProject() } label: { Image(systemName: "folder").font(.system(size: 15)) }
                 .buttonStyle(.plain)
-                .foregroundStyle(.white.opacity(0.5))
+                .foregroundStyle(.white.opacity(0.55))
                 .help("Show this project's folder in Finder")
+            projectMenu
             Spacer(minLength: 8)
             stepTracker
             Spacer(minLength: 8)
@@ -438,6 +448,62 @@ struct VideoEditorView: View {
                 .help("Save the finished MP4 at \(model.frameFormat.pixels) with subtitles burned in")
         }
         .disabled(model.phase.isBusy)
+    }
+
+    // MARK: Project menu
+
+    @State private var renamingProject = false
+    @State private var renameText = ""
+    @State private var confirmingClear = false
+    @State private var confirmingDelete = false
+
+    /// Everything about the project as a whole, kept away from the
+    /// editing controls: rename it, find it, empty it, or delete it.
+    private var projectMenu: some View {
+        Menu {
+            Button {
+                renameText = model.project?.name ?? ""
+                renamingProject = true
+            } label: { Label("Rename project…", systemImage: "pencil") }
+            Button { model.revealProject() } label: { Label("Show in Finder", systemImage: "folder") }
+            Divider()
+            Button(role: .destructive) { confirmingClear = true } label: {
+                Label("Clear timeline…", systemImage: "rectangle.dashed")
+            }
+            .disabled(!hasClips)
+            Button(role: .destructive) { confirmingDelete = true } label: {
+                Label("Delete project…", systemImage: "trash")
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.7))
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Rename, find, clear or delete this project")
+        .alert("Rename project", isPresented: $renamingProject) {
+            TextField("Project name", text: $renameText)
+            Button("Rename") { model.renameProject(to: renameText) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The project's folder in Movies › ReelFlow Projects is renamed too.")
+        }
+        .confirmationDialog("Clear the timeline?", isPresented: $confirmingClear, titleVisibility: .visible) {
+            Button("Clear timeline", role: .destructive) { model.clearTimeline() }
+            Button("Keep it", role: .cancel) {}
+        } message: {
+            Text("Every clip comes off the timeline, with its cuts and subtitles. The project, its song, titles and pictures stay, and ⌘Z brings the clips back.")
+        }
+        .confirmationDialog("Delete \u{201C}\(model.project?.name ?? "this project")\u{201D}?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete project", role: .destructive) { model.deleteProject() }
+            Button("Keep it", role: .cancel) {}
+        } message: {
+            Text("The project folder — its settings, subtitles and exports — goes to the Trash. Your original video files are not touched.")
+        }
     }
 
     // MARK: Steps
@@ -593,12 +659,21 @@ struct VideoEditorView: View {
             case .idle:
                 Image(systemName: "lightbulb.fill").foregroundStyle(accent.opacity(0.9))
                 coachText(model.note ?? nextHint)
+                if let action = model.noteAction {
+                    Button(action.title, action: action.run)
+                        .buttonStyle(.plain)
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .background(Capsule().fill(accent))
+                        .help("Put it back (⌘Z)")
+                }
             }
             if !isTerminal(model.phase) { Spacer() }
         }
-        .font(.system(size: 12, design: .monospaced))
+        .font(.system(size: 14, design: .monospaced))
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -1092,7 +1167,7 @@ struct VideoEditorView: View {
                 transportButton("arrow.right", labels ? "Later" : nil,
                                 help: "Move the highlighted clip one place later") { model.moveSelectedClip(by: 1) }
                 transportButton("trash", labels ? "Remove" : nil, destructive: true,
-                                help: "Take the highlighted clip out of the video (the file stays on disk)") { confirmingRemove = true }
+                                help: "Take the highlighted clip out of the video (the file stays on disk)") { removeSelectedClip() }
             }
         }
     }
@@ -1682,7 +1757,7 @@ struct VideoEditorView: View {
                     controlGroup("HIGHLIGHTED CLIP") {
                         tile("arrow.left", "Earlier", help: "Move the highlighted clip one place earlier") { model.moveSelectedClip(by: -1) }
                         tile("arrow.right", "Later", help: "Move the highlighted clip one place later") { model.moveSelectedClip(by: 1) }
-                        tile("trash", "Remove", help: "Take the highlighted clip out of the video (the file stays on disk)", destructive: true) { confirmingRemove = true }
+                        tile("trash", "Remove", help: "Take the highlighted clip out of the video (the file stays on disk)", destructive: true) { removeSelectedClip() }
                     }
                     .disabled(model.selectedClip == nil || model.phase.isBusy)
                 }

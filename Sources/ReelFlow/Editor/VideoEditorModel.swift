@@ -61,7 +61,19 @@ final class VideoEditorModel: ObservableObject {
     }
     @Published private(set) var isPlaying = false { didSet { if isPlaying != oldValue { publishRemoteState() } } }
     /// The last thing worth telling the user, under the toolbar.
-    @Published private(set) var note: String?
+    @Published private(set) var note: String? { didSet { if note != oldValue { noteAction = nil } } }
+    /// A button beside the note — "Undo" after a removal.
+    @Published private(set) var noteAction: NoteAction?
+    struct NoteAction {
+        let title: String
+        let run: () -> Void
+    }
+
+    /// Earlier states of the project, newest last, for ⌘Z. Slider moves
+    /// (volume, opacity) aren't recorded; cuts, removals, subtitles are.
+    private var undoStack: [VideoProject] = []
+    private static let undoLimit = 60
+    var canUndo: Bool { !undoStack.isEmpty }
     /// The most recent finished export this session, so the step tracker
     /// can show Export as done.
     @Published private(set) var lastExport: URL?
@@ -193,6 +205,7 @@ final class VideoEditorModel: ObservableObject {
         selectedOverlayID = nil
         previewTimeline = nil
         overlayImages = [:]
+        undoStack = []
         currentTime = 0
         phase = .idle
         note = nil
@@ -206,6 +219,7 @@ final class VideoEditorModel: ObservableObject {
         selectedClipID = project.clips.first?.id
         selectedOverlayID = nil
         overlayImages = [:]
+        undoStack = []
         phase = .idle
         currentTime = 0
         lastExport = nil
@@ -230,12 +244,30 @@ final class VideoEditorModel: ObservableObject {
 
     /// Change the project, save it, and refresh the preview at `seek`
     /// (or where the playhead is).
-    private func edit(seekTo requested: Double? = nil, rebuild: Bool = true, _ change: (inout VideoProject) -> Void) {
+    private func edit(seekTo requested: Double? = nil, rebuild: Bool = true, undoable: Bool = true,
+                      _ change: (inout VideoProject) -> Void) {
         guard var p = project else { return }
+        let before = p
         change(&p)
+        guard p != before else { return }
+        if undoable {
+            undoStack.append(before)
+            if undoStack.count > Self.undoLimit { undoStack.removeFirst() }
+        }
         project = p
         save()
         if rebuild { rebuildPreview(seekTo: requested) }
+    }
+
+    /// Put the project back the way it was before the last edit.
+    func undo() {
+        guard let previous = undoStack.popLast(), project != nil else { return }
+        project = previous
+        save()
+        selectedClipID = previous.clips.first { $0.id == selectedClipID }?.id ?? previous.clips.first?.id
+        if let selectedOverlayID, !previous.overlays.contains(where: { $0.id == selectedOverlayID }) { self.selectedOverlayID = nil }
+        note = "Undone."
+        rebuildPreview(seekTo: nil)
     }
 
     // MARK: Clips
@@ -399,8 +431,66 @@ final class VideoEditorModel: ObservableObject {
 
     func removeSelectedClip() {
         guard let id = selectedClipID, let p = project, let index = p.clips.firstIndex(where: { $0.id == id }) else { return }
+        let clip = p.clips[index]
         edit(seekTo: p.clipStarts[index]) { $0.remove(id) }
         selectedClipID = project?.clips[safe: min(index, (project?.clips.count ?? 1) - 1)]?.id
+        note = p.clips.count == 1
+            ? "Removed the only clip — the timeline is empty."
+            : "Removed the \(Self.clock(clip.duration)) piece at \(Self.clock(p.clipStarts[index]))."
+        noteAction = NoteAction(title: "Undo") { [weak self] in self?.undo() }
+    }
+
+    // MARK: Project menu
+
+    /// Every clip off the timeline; the project, its song, titles and
+    /// pictures stay. Undoable.
+    func clearTimeline() {
+        guard let p = project, !p.clips.isEmpty else { return }
+        edit(seekTo: 0) { $0.clips = [] }
+        selectedClipID = nil
+        note = "Cleared the timeline — \(p.clips.count) clip\(p.clips.count == 1 ? "" : "s") removed."
+        noteAction = NoteAction(title: "Undo") { [weak self] in self?.undo() }
+    }
+
+    /// Rename the project and its folder on disk.
+    func renameProject(to requested: String) {
+        guard var p = project, let folder = projectFolder else { return }
+        let fm = FileManager.default
+        let name = Self.folderName(for: requested) { candidate in
+            candidate != folder.lastPathComponent && fm.fileExists(atPath: Self.projectsRoot.appendingPathComponent(candidate).path)
+        }
+        guard name != p.name else { return }
+        let destination = Self.projectsRoot.appendingPathComponent(name, isDirectory: true)
+        do {
+            try fm.moveItem(at: folder, to: destination)
+        } catch {
+            note = "Couldn't rename: \(error.localizedDescription)"
+            return
+        }
+        p.name = name
+        project = p
+        projectFolder = destination
+        save()
+        refreshRecentProjects()
+        note = "Renamed to \(name)."
+    }
+
+    /// The project folder goes to the Trash — its settings, subtitles and
+    /// exports. The video files it referenced are untouched.
+    func deleteProject() {
+        guard let folder = projectFolder else { return }
+        closeProject()
+        deleteProject(at: folder)
+    }
+
+    /// Delete a project from the start screen's list.
+    func deleteProject(at folder: URL) {
+        do {
+            try FileManager.default.trashItem(at: folder, resultingItemURL: nil)
+        } catch {
+            phase = .failed("Couldn't delete \(folder.lastPathComponent): \(error.localizedDescription)")
+        }
+        refreshRecentProjects()
     }
 
     func moveSelectedClip(by offset: Int) {
@@ -450,7 +540,7 @@ final class VideoEditorModel: ObservableObject {
     /// bakes the same zoom in.
     func setZoom(_ zoom: Double) {
         guard let id = selectedClipID else { return }
-        edit(rebuild: false) { $0.setZoom(zoom, for: id) }
+        edit(rebuild: false, undoable: false) { $0.setZoom(zoom, for: id) }
     }
 
     /// Move the highlighted clip's picture about the frame, in any
@@ -462,7 +552,7 @@ final class VideoEditorModel: ObservableObject {
         let x = Double(VideoExporter.clampPan(pan.width))
         let y = Double(VideoExporter.clampPan(pan.height))
         guard x != clip.panX || y != clip.panY else { return }
-        edit(rebuild: false) { $0.setPan(x: x, y: y, for: clip.id) }
+        edit(rebuild: false, undoable: false) { $0.setPan(x: x, y: y, for: clip.id) }
     }
 
     /// The clip under the playhead, whose zoom the preview shows live.
@@ -556,12 +646,12 @@ final class VideoEditorModel: ObservableObject {
 
     /// Volume and fades change the sound mix only; the player keeps playing.
     func setMusicVolume(_ volume: Double) {
-        edit(rebuild: false) { $0.setMusic { $0.volume = volume } }
+        edit(rebuild: false, undoable: false) { $0.setMusic { $0.volume = volume } }
         refreshAudioMix()
     }
 
     func setMusicFade(in fadeIn: Double? = nil, out fadeOut: Double? = nil) {
-        edit(rebuild: false) { $0.setMusic { m in
+        edit(rebuild: false, undoable: false) { $0.setMusic { m in
             if let fadeIn { m.fadeIn = fadeIn }
             if let fadeOut { m.fadeOut = fadeOut }
         } }
@@ -582,7 +672,7 @@ final class VideoEditorModel: ObservableObject {
 
     /// How loud the clips' own sound is.
     func setClipVolume(_ volume: Double) {
-        edit(rebuild: false) { $0.clipVolume = min(max(0, volume), 1) }
+        edit(rebuild: false, undoable: false) { $0.clipVolume = min(max(0, volume), 1) }
         refreshAudioMix()
     }
 
@@ -629,8 +719,8 @@ final class VideoEditorModel: ObservableObject {
         selectedOverlayID = overlay.id
     }
 
-    func updateOverlay(_ id: UUID, _ change: @escaping (inout Overlay) -> Void) {
-        edit(rebuild: false) { $0.updateOverlay(id, change) }
+    func updateOverlay(_ id: UUID, undoable: Bool = true, _ change: @escaping (inout Overlay) -> Void) {
+        edit(rebuild: false, undoable: undoable) { $0.updateOverlay(id, change) }
     }
 
     /// Dragged in the preview to a new spot.

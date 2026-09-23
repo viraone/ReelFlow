@@ -37,6 +37,11 @@ struct ReelFlowApp: App {
                 Button("Import Clips…") { model.chooseClips() }
                     .keyboardShortcut("i", modifiers: .command)
             }
+            CommandGroup(replacing: .undoRedo) {
+                Button("Undo") { model.undo() }
+                    .keyboardShortcut("z", modifiers: .command)
+                    .disabled(!model.canUndo)
+            }
         }
     }
 }
