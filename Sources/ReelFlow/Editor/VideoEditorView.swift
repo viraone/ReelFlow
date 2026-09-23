@@ -1047,8 +1047,8 @@ struct VideoEditorView: View {
 
     /// Shades the parts of the frame Instagram covers with its own UI.
     private func safeZoneShade(width: CGFloat, height: CGFloat) -> some View {
-        let bottom = height * VideoEditorModel.SafeZone.bottom
-        let top = height * VideoEditorModel.SafeZone.top
+        let bottom = height * max(VideoEditorModel.SafeZone.bottom, VideoEditorModel.SafeZone.feedCrop)
+        let top = height * max(VideoEditorModel.SafeZone.top, VideoEditorModel.SafeZone.feedCrop)
         let right = width * VideoEditorModel.SafeZone.right
         let rail = VideoEditorModel.SafeZone.railRange
         let shade = Color.red.opacity(0.28)
@@ -1059,7 +1059,7 @@ struct VideoEditorView: View {
                 .position(x: width / 2, y: height - bottom / 2)
             Rectangle().fill(shade).frame(width: right, height: height * (rail.upperBound - rail.lowerBound))
                 .position(x: width - right / 2, y: height * (1 - (rail.lowerBound + rail.upperBound) / 2))
-            Text("Instagram covers the red")
+            Text("Instagram covers or crops the red")
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.9))
                 .padding(.horizontal, 6).padding(.vertical, 3)
