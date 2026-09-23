@@ -759,6 +759,10 @@ struct VideoEditorView: View {
             ForEach(model.overlaysNow) { overlay in
                 overlayPreview(overlay, width: width, height: height)
             }
+            if showSafeZone && hasClips { safeZoneShade(width: width, height: height) }
+            ForEach(snapGuides, id: \.self) { guide in
+                snapGuideLine(guide, width: width, height: height)
+            }
             if hasClips {
                 VStack {
                     Spacer()
@@ -881,13 +885,11 @@ struct VideoEditorView: View {
         let scale = width / render.width
         let shown = dragged(overlay)
         let image = model.overlayImage(for: overlay)
-        let frame: CGRect = overlay.kind == .text
-            ? VideoExporter.captionFrame(for: shown.captionStyle.display(shown.text), style: shown.captionStyle,
-                                         anchor: shown.anchor, render: render).pill
-            : VideoExporter.pictureFrame(for: shown, image: image, render: render)
+        let frame = overlayRect(shown)
         let centre = CGPoint(x: frame.midX * scale, y: height - frame.midY * scale)
         let selected = overlay.id == model.selectedOverlayID
         let active = selected || hoverOverlayID == overlay.id || dragOverlayID == overlay.id
+        let snapped = dragOverlayID == overlay.id && !snapGuides.isEmpty
 
         if overlay.kind == .text {
             CaptionLayerView(text: shown.text, highlight: nil, style: shown.captionStyle, anchor: shown.anchor,
@@ -905,8 +907,8 @@ struct VideoEditorView: View {
                 .allowsHitTesting(false)
         }
         RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .strokeBorder(style: StrokeStyle(lineWidth: selected ? 1.5 : 1, dash: [4, 3]))
-            .foregroundStyle(accent.opacity(active ? 0.9 : 0))
+            .strokeBorder(style: StrokeStyle(lineWidth: snapped ? 2 : selected ? 1.5 : 1, dash: snapped ? [] : [4, 3]))
+            .foregroundStyle(snapped ? Self.snapColor : accent.opacity(active ? 0.9 : 0))
             .frame(width: frame.width * scale + 8, height: frame.height * scale + 8)
             .overlay(
                 MouseHandle(
@@ -921,19 +923,123 @@ struct VideoEditorView: View {
                             model.selectedOverlayID = overlay.id
                         }
                         let to = CGPoint(x: from.x + translation.width, y: from.y + translation.height)
-                        dragOverlayAnchor = CaptionAnchor(x: min(max(0, to.x / width), 1),
-                                                          y: min(max(0, (height - to.y) / height), 1))
+                        let free = CaptionAnchor(x: min(max(0, to.x / width), 1),
+                                                 y: min(max(0, (height - to.y) / height), 1))
+                        let (anchor, guides) = snap(free, for: overlay)
+                        dragOverlayAnchor = anchor
+                        snapGuides = guides
                     },
                     onEnd: {
                         if let dragOverlayAnchor { model.setOverlayAnchor(overlay.id, dragOverlayAnchor) }
                         dragOverlayID = nil
                         dragOverlayAnchor = nil
                         dragOverlayStart = nil
+                        snapGuides = []
                     }
                 )
             )
             .position(centre)
             .help(overlay.kind == .text ? "Drag to move this title; click to edit it" : "Drag to move this picture; click to size it")
+    }
+
+    // MARK: Snapping and the safe zone
+
+    /// Where a title or picture sits in render space (y up).
+    private func overlayRect(_ overlay: Overlay) -> CGRect {
+        let render = model.renderSize
+        switch overlay.kind {
+        case .text:
+            return VideoExporter.captionFrame(for: overlay.captionStyle.display(overlay.text), style: overlay.captionStyle,
+                                              anchor: overlay.anchor, render: render).pill
+        case .image:
+            return VideoExporter.pictureFrame(for: overlay, image: model.overlayImage(for: overlay), render: render)
+        }
+    }
+
+    /// A line the dragged title has locked onto, in render space (y up).
+    private enum SnapGuide: Hashable {
+        case horizontal(CGFloat)
+        case vertical(CGFloat)
+    }
+
+    @State private var snapGuides: [SnapGuide] = []
+    private static let snapColor = Color(red: 0.35, green: 0.9, blue: 0.5)
+    @AppStorage("reelflowSafeZone") private var showSafeZone = false
+
+    /// Pull a dragged title or picture onto the spots that matter: snug
+    /// under or above the video, the middle of the frame, and the edge
+    /// of Instagram's safe area. Returns where it lands and the guides
+    /// to light up.
+    private func snap(_ free: CaptionAnchor, for overlay: Overlay) -> (CaptionAnchor, [SnapGuide]) {
+        let render = model.renderSize
+        var moved = overlay
+        moved.anchor = free
+        let rect = overlayRect(moved)
+        let tolerance = render.width * 0.018
+        let gap = render.height * 0.012
+        var anchor = free
+        var guides: [SnapGuide] = []
+
+        if abs(rect.midX - render.width / 2) < tolerance {
+            anchor.x = 0.5
+            guides.append(.vertical(render.width / 2))
+        }
+        // Whichever horizontal target is nearest wins.
+        var targets: [(edge: CGFloat, top: CGFloat, guide: CGFloat)] = []   // where rect.minY should land, or rect.maxY
+        if let picture = model.playheadClip.flatMap({ model.pictureRect(for: $0) }) {
+            targets.append((edge: rect.maxY, top: picture.minY - gap, guide: picture.minY))   // snug under the picture
+            targets.append((edge: rect.minY, top: picture.maxY + gap, guide: picture.maxY))   // snug above it
+        }
+        let safeBottom = render.height * VideoEditorModel.SafeZone.bottom
+        targets.append((edge: rect.minY, top: safeBottom, guide: safeBottom))
+        let safeTop = render.height * (1 - VideoEditorModel.SafeZone.top)
+        targets.append((edge: rect.maxY, top: safeTop, guide: safeTop))
+        if let best = targets.min(by: { abs($0.edge - $0.top) < abs($1.edge - $1.top) }), abs(best.edge - best.top) < tolerance {
+            let shift = best.top - best.edge
+            anchor.y = Double((rect.midY + shift) / render.height)
+            guides.append(.horizontal(best.guide))
+        }
+        return (anchor, guides)
+    }
+
+    private func snapGuideLine(_ guide: SnapGuide, width: CGFloat, height: CGFloat) -> some View {
+        let scale = width / model.renderSize.width
+        return Group {
+            switch guide {
+            case .horizontal(let y):
+                Rectangle().fill(Self.snapColor).frame(width: width, height: 1.5)
+                    .position(x: width / 2, y: height - y * scale)
+            case .vertical(let x):
+                Rectangle().fill(Self.snapColor).frame(width: 1.5, height: height)
+                    .position(x: x * scale, y: height / 2)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    /// Shades the parts of the frame Instagram covers with its own UI.
+    private func safeZoneShade(width: CGFloat, height: CGFloat) -> some View {
+        let bottom = height * VideoEditorModel.SafeZone.bottom
+        let top = height * VideoEditorModel.SafeZone.top
+        let right = width * VideoEditorModel.SafeZone.right
+        let rail = VideoEditorModel.SafeZone.railRange
+        let shade = Color.red.opacity(0.28)
+        return ZStack(alignment: .topLeading) {
+            Rectangle().fill(shade).frame(width: width, height: top)
+                .position(x: width / 2, y: top / 2)
+            Rectangle().fill(shade).frame(width: width, height: bottom)
+                .position(x: width / 2, y: height - bottom / 2)
+            Rectangle().fill(shade).frame(width: right, height: height * (rail.upperBound - rail.lowerBound))
+                .position(x: width - right / 2, y: height * (1 - (rail.lowerBound + rail.upperBound) / 2))
+            Text("Instagram covers the red")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.9))
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .background(Capsule().fill(Color.red.opacity(0.7)))
+                .position(x: width / 2, y: height - bottom / 2)
+        }
+        .frame(width: width, height: height)
+        .allowsHitTesting(false)
     }
 
     /// The project's background as a SwiftUI colour.
@@ -1020,6 +1126,12 @@ struct VideoEditorView: View {
             barDivider
             barButton("textformat", full ? preset.name : nil, chevron: true,
                       help: "Subtitle style: \(preset.name) · \(preset.category.rawValue) — click to change") { open(.style) }
+            barDivider
+            barButton(showSafeZone ? "eye.fill" : "eye", full ? "Safe zone" : nil,
+                      help: showSafeZone ? "Hide the parts of the frame Instagram covers with its caption and buttons"
+                                         : "Show the parts of the frame Instagram covers with its caption and buttons — keep titles out of them") {
+                showSafeZone.toggle()
+            }
         }
         .padding(4)
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.06)))

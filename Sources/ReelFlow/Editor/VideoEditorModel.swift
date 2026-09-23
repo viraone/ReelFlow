@@ -753,25 +753,54 @@ final class VideoEditorModel: ObservableObject {
         edit { $0.background = background.rawValue }
     }
 
-    /// A promo layout in one click: the picture shrinks to the middle of
-    /// the frame on a dark background, with a show title above and the
-    /// name and date below — placeholders, ready to be typed over. The
-    /// user adds their logo from Picture.
+    /// Where Instagram lays its own controls over a Reel, as shares of
+    /// the frame: the caption and username along the bottom, the status
+    /// bar and "Reels" label along the top, the like/share rail down the
+    /// right. Anything there is hidden on the phone.
+    enum SafeZone {
+        static let bottom = 0.16
+        static let top = 0.08
+        static let right = 0.12
+        /// The rail of buttons runs up this stretch of the right edge.
+        static let railRange = 0.16...0.58
+    }
+
+    /// The picture's place in the frame for a clip, in render space with
+    /// y up — from the shape of its filmstrip frame, so nil until that's
+    /// been read. What titles snap to.
+    func pictureRect(for clip: EditClip) -> CGRect? {
+        guard let frame = filmstrips[clip.source.path]?.first, frame.width > 0, frame.height > 0 else { return nil }
+        let render = renderSize
+        let w = CGFloat(frame.width), h = CGFloat(frame.height)
+        let scale = min(render.width / w, render.height / h) * CGFloat(clip.zoom)
+        let size = CGSize(width: w * scale, height: h * scale)
+        // Pan is right-and-down; render space here is y-up.
+        let centre = CGPoint(x: render.width / 2 + CGFloat(clip.panX) * render.width,
+                             y: render.height / 2 - CGFloat(clip.panY) * render.height)
+        return CGRect(x: centre.x - size.width / 2, y: centre.y - size.height / 2, width: size.width, height: size.height)
+    }
+
+    /// A promo layout in one click, laid out inside Instagram's safe
+    /// area: the picture sits high in the frame on a dark background, a
+    /// show title above it, the name and date below it, all clear of the
+    /// caption strip. Placeholders, ready to be typed over; the user adds
+    /// their logo from Picture.
     func addBanner() {
         guard let p = project, !p.clips.isEmpty else { return }
         let style = stylePreset
-        let top = Overlay(kind: .text, text: "LIVE STAND-UP COMEDY", anchor: CaptionAnchor(x: 0.5, y: 0.93),
-                          style: style.rawValue, scale: 0.85)
-        let name = Overlay(kind: .text, text: "YOUR NAME", anchor: CaptionAnchor(x: 0.5, y: 0.10),
-                           style: style.rawValue, scale: 1.1)
-        let when = Overlay(kind: .text, text: "JUNE 27 · SEATTLE", anchor: CaptionAnchor(x: 0.5, y: 0.04),
-                           style: style.rawValue, scale: 0.75)
+        let top = Overlay(kind: .text, text: "LIVE STAND-UP COMEDY", anchor: CaptionAnchor(x: 0.5, y: 0.945),
+                          style: style.rawValue, scale: 0.75)
+        let name = Overlay(kind: .text, text: "YOUR NAME", anchor: CaptionAnchor(x: 0.5, y: 0.265),
+                           style: style.rawValue, scale: 1.05)
+        let when = Overlay(kind: .text, text: "JUNE 27 · SEATTLE", anchor: CaptionAnchor(x: 0.5, y: 0.195),
+                           style: style.rawValue, scale: 0.7)
         edit(seekTo: nil) { project in
             if project.canvasBackground == .black { project.background = CanvasBackground.charcoal.rawValue }
             for i in project.clips.indices {
-                project.clips[i].zoom = 0.72
+                project.clips[i].zoom = 0.58
                 project.clips[i].panX = 0
-                project.clips[i].panY = 0
+                // Up a little, so the bottom band clears Instagram's caption.
+                project.clips[i].panY = -0.12
             }
             project.addOverlay(top)
             project.addOverlay(name)
