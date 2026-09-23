@@ -763,6 +763,18 @@ final class VideoEditorModel: ObservableObject {
         static let right = 0.12
         /// The rail of buttons runs up this stretch of the right edge.
         static let railRange = 0.16...0.58
+        /// A 9:16 video posted to the feed (not as a Reel) is shown at
+        /// 4:5: Instagram cuts this share off the top and off the bottom.
+        static let feedCrop = 0.148
+    }
+
+    /// Where the banner's titles go, as bottom-up shares of the frame:
+    /// inside the 4:5 a feed post keeps, and above the caption strip of a
+    /// Reel, so the same export works posted either way.
+    enum Banner {
+        static let titleY = 0.80
+        static let nameY = 0.30
+        static let dateY = 0.215
     }
 
     /// The picture's place in the frame for a clip, in render space with
@@ -780,34 +792,47 @@ final class VideoEditorModel: ObservableObject {
         return CGRect(x: centre.x - size.width / 2, y: centre.y - size.height / 2, width: size.width, height: size.height)
     }
 
-    /// A promo layout in one click, laid out inside Instagram's safe
-    /// area: the picture sits high in the frame on a dark background, a
-    /// show title above it, the name and date below it, all clear of the
-    /// caption strip. Placeholders, ready to be typed over; the user adds
-    /// their logo from Picture.
+    /// A promo layout in one click, over the footage: every clip's picture
+    /// fills the frame edge to edge, a show title sits over the top of it,
+    /// the name and date over the bottom. No bands: a feed post shows the
+    /// whole 9:16 at 4:5, and black bands were most of what got cropped
+    /// or, as a Reel, most of what the phone showed. The titles stay
+    /// inside the 4:5 and above the Reel caption strip, so one export works
+    /// posted either way. Placeholders, ready to be typed over; the user
+    /// adds their logo from Picture.
     func addBanner() {
         guard let p = project, !p.clips.isEmpty else { return }
         let style = stylePreset
-        let top = Overlay(kind: .text, text: "LIVE STAND-UP COMEDY", anchor: CaptionAnchor(x: 0.5, y: 0.945),
-                          style: style.rawValue, scale: 0.75)
-        let name = Overlay(kind: .text, text: "YOUR NAME", anchor: CaptionAnchor(x: 0.5, y: 0.265),
-                           style: style.rawValue, scale: 1.05)
-        let when = Overlay(kind: .text, text: "JUNE 27 · SEATTLE", anchor: CaptionAnchor(x: 0.5, y: 0.195),
-                           style: style.rawValue, scale: 0.7)
-        edit(seekTo: nil) { project in
-            if project.canvasBackground == .black { project.background = CanvasBackground.charcoal.rawValue }
-            for i in project.clips.indices {
-                project.clips[i].zoom = 0.58
-                project.clips[i].panX = 0
-                // Up a little, so the bottom band clears Instagram's caption.
-                project.clips[i].panY = -0.12
+        let top = Overlay(kind: .text, text: "LIVE STAND-UP COMEDY", anchor: CaptionAnchor(x: 0.5, y: Banner.titleY),
+                          style: style.rawValue, scale: 1.15)
+        let name = Overlay(kind: .text, text: "YOUR NAME", anchor: CaptionAnchor(x: 0.5, y: Banner.nameY),
+                           style: style.rawValue, scale: 1.6)
+        let when = Overlay(kind: .text, text: "JUNE 27 · SEATTLE", anchor: CaptionAnchor(x: 0.5, y: Banner.dateY),
+                           style: style.rawValue, scale: 0.9)
+        let render = renderSize
+        Task {
+            // The fill zoom depends on each clip's own shape, read from its file first so the whole banner is one
+            // undoable edit.
+            var zooms: [UUID: Double] = [:]
+            for clip in p.clips {
+                let asset = AVURLAsset(url: clip.source)
+                guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+                      let (natural, preferred) = try? await track.load(.naturalSize, .preferredTransform) else { continue }
+                zooms[clip.id] = VideoExporter.fillZoom(naturalSize: natural, preferredTransform: preferred, into: render)
             }
-            project.addOverlay(top)
-            project.addOverlay(name)
-            project.addOverlay(when)
+            edit(seekTo: nil) { project in
+                for i in project.clips.indices {
+                    project.clips[i].zoom = zooms[project.clips[i].id] ?? 1
+                    project.clips[i].panX = 0
+                    project.clips[i].panY = 0
+                }
+                project.addOverlay(top)
+                project.addOverlay(name)
+                project.addOverlay(when)
+            }
+            selectedOverlayID = name.id
+            note = "Banner added — the picture fills the frame; type over the titles, drag them, and add your logo from Picture. ⌘Z takes it all back."
         }
-        selectedOverlayID = name.id
-        note = "Banner added — type over the titles, drag them, and add your logo from Picture. ⌘Z takes it all back."
     }
 
     // MARK: Frame

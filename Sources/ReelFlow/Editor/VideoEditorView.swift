@@ -2050,7 +2050,7 @@ struct VideoEditorView: View {
                                 .help("\(choice.name) behind the picture — the bars beside a landscape clip, or the bands when it's zoomed out")
                             }
                         }
-                        Text("Zoom Out past 1× shrinks the picture and leaves bands above and below in this colour — room for a banner (see Text).")
+                        Text("Zoom Out past 1× shrinks the picture and leaves bands above and below in this colour. Posted to the feed, Instagram crops a 9:16 video to 4:5, so bands mostly get cut off.")
                             .font(.system(size: 13))
                             .foregroundStyle(Color.white.opacity(0.65))
                             .fixedSize(horizontal: false, vertical: true)
@@ -2233,7 +2233,7 @@ struct VideoEditorView: View {
                     pillButton("Add title", icon: "plus", prominent: true) { model.addTitle() }
                         .help("One title, at the top of the video, in the subtitle style")
                     pillButton("Add banner", icon: "rectangle.split.3x1") { model.addBanner() }
-                        .help("Promo layout: the picture shrinks to the middle on a dark background, with a show title above and the name and date below")
+                        .help("Promo layout: the picture fills the frame, with a show title over the top and the name and date over the bottom, clear of Instagram's crop and caption")
                 }
                 .disabled(!hasClips)
                 .opacity(hasClips ? 1 : 0.45)

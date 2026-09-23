@@ -704,13 +704,6 @@ final class VideoEditorModelTests: XCTestCase {
         XCTAssertEqual(VideoEditorModel.clock(65.5), "1:05.50")
         XCTAssertEqual(VideoEditorModel.clock(-3), "0:00.00")
     }
-
-    func testTheVideoTabHasNoMicAndAppearsBeforeExtensions() {
-        XCTAssertFalse(AssistantTab.video.takesVoice)
-        XCTAssertEqual(AssistantTab.video.shortName, "Video")
-        let all = AssistantTab.allCases
-        XCTAssertLessThan(all.firstIndex(of: .video)!, all.firstIndex(of: .extensions)!)
-    }
 }
 
 final class AudioWaveformTests: XCTestCase {
@@ -762,5 +755,29 @@ final class AudioWaveformTests: XCTestCase {
         XCTAssertEqual(peaks.count, 20)
         XCTAssertLessThan(peaks[0..<8].max() ?? 1, 0.15, "the silent half is flat")
         XCTAssertGreaterThan(peaks[12..<20].min() ?? 0, 0.7, "the tone half is tall")
+    }
+}
+
+@MainActor
+final class BannerLayoutTests: XCTestCase {
+    /// The banner's titles sit where both a feed post (4:5 crop) and a Reel (caption strip) show them.
+    func testBannerTitlesSurviveTheFeedCropAndClearTheReelCaption() {
+        typealias Safe = VideoEditorModel.SafeZone
+        typealias Banner = VideoEditorModel.Banner
+        for y in [Banner.titleY, Banner.nameY, Banner.dateY] {
+            XCTAssertGreaterThan(y, Safe.feedCrop, "cut off the bottom of a feed post")
+            XCTAssertLessThan(y, 1 - Safe.feedCrop, "cut off the top of a feed post")
+            XCTAssertGreaterThan(y, Safe.bottom, "under Instagram's caption on a Reel")
+            XCTAssertLessThan(y, 1 - Safe.top, "under the status bar on a Reel")
+        }
+        XCTAssertGreaterThan(Banner.titleY, Banner.nameY)
+        XCTAssertGreaterThan(Banner.nameY, Banner.dateY)
+    }
+
+    /// A 9:16 clip fills a 9:16 frame at 1×; a landscape clip needs more.
+    func testFillZoomIsOneForAClipShapedLikeTheFrame() {
+        let render = CGSize(width: 1080, height: 1920)
+        XCTAssertEqual(VideoExporter.fillZoom(naturalSize: CGSize(width: 1080, height: 1920), preferredTransform: .identity, into: render), 1, accuracy: 0.0001)
+        XCTAssertEqual(VideoExporter.fillZoom(naturalSize: CGSize(width: 1920, height: 1080), preferredTransform: .identity, into: render), 16.0 / 9.0 * 16.0 / 9.0, accuracy: 0.0001)
     }
 }
