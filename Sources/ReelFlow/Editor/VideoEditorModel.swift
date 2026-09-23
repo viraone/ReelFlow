@@ -243,6 +243,32 @@ final class VideoEditorModel: ObservableObject {
         }
     }
 
+    /// Files dropped on the window, sorted by what they are: videos join
+    /// the timeline (starting a project if there isn't one), a song goes
+    /// under the video, pictures go over it.
+    func drop(_ urls: [URL]) {
+        var videos: [URL] = []
+        var songs: [URL] = []
+        var pictures: [URL] = []
+        for url in urls {
+            guard let type = UTType(filenameExtension: url.pathExtension) else { continue }
+            if type.conforms(to: .movie) || type.conforms(to: .video) {
+                videos.append(url)
+            } else if type.conforms(to: .audio) {
+                songs.append(url)
+            } else if type.conforms(to: .image) {
+                pictures.append(url)
+            }
+        }
+        if !videos.isEmpty { importClips(videos) }
+        if project == nil, videos.isEmpty {
+            note = "Drop a video first — then a song or a picture can go with it."
+            return
+        }
+        if let song = songs.first { addMusic(song) }
+        for picture in pictures { addPicture(picture) }
+    }
+
     func importClips(_ urls: [URL]) {
         let videos = urls.filter { url in
             guard let type = UTType(filenameExtension: url.pathExtension) else { return false }
