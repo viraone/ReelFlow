@@ -1064,7 +1064,7 @@ final class VideoEditorModel: ObservableObject {
         let generation = previewGeneration
         let wasPlaying = isPlaying
         let target = requested ?? currentTime
-        Task {
+        Task { [self] in
             do {
                 let timeline = try await VideoExporter.build(project, zoomed: false)
                 guard generation == previewGeneration else { return }
@@ -1133,7 +1133,7 @@ final class VideoEditorModel: ObservableObject {
         let base = exportsFolder.appendingPathComponent("\(project.name) \(stamp)")
         let movie = base.appendingPathExtension("mp4")
         phase = .exporting(0)
-        Task {
+        Task { [self] in
             do {
                 try await VideoExporter.export(project, style: style, to: movie,
                                                images: { [weak self] in self?.overlayImage(for: $0) }) { [weak self] p in

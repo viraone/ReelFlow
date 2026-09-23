@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// One caption on screen. Times are in the *source clip's* seconds, so a

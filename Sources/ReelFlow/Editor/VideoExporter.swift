@@ -342,7 +342,7 @@ enum VideoExporter {
                                width: textSize.width, height: textSize.height)
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
-        var fill: [NSAttributedString.Key: Any] = [
+        let fill: [NSAttributedString.Key: Any] = [
             .font: style.font, .foregroundColor: style.textColor, .paragraphStyle: paragraph,
         ]
         let inset = style.strokeColor == nil ? 0 : style.strokeWidth
