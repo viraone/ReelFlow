@@ -794,7 +794,7 @@ struct VideoEditorView: View {
         let clip = model.selectedClip
         return MouseHandle(
             cursor: .openHand,
-            onTap: { model.togglePlay() },
+            onTap: { model.selectedOverlayID = nil; model.togglePlay() },
             onDrag: { translation in
                 guard let clip else { return }
                 let from = dragPanStart ?? CGSize(width: clip.panX, height: clip.panY)
@@ -840,6 +840,7 @@ struct VideoEditorView: View {
                 MouseHandle(
                     cursor: .openHand,
                     onHover: { captionHover = $0 },
+                    onTap: { model.selectedOverlayID = nil },
                     onDrag: { translation in
                         let from = dragStart ?? centre
                         if dragStart == nil { dragStart = centre }
@@ -1097,6 +1098,8 @@ struct VideoEditorView: View {
                 Spacer(minLength: 0)
             }
             .frame(width: geo.size.width, height: geo.size.height)
+            // A click on the empty canvas lets go of whichever title was picked.
+            .background(Color.clear.contentShape(Rectangle()).onTapGesture { model.selectedOverlayID = nil })
         }
     }
 
