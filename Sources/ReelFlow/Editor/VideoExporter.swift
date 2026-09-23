@@ -132,7 +132,11 @@ enum VideoExporter {
                 videoTrack.scaleTimeRange(CMTimeRange(start: cursor, duration: range.duration), toDuration: scaled)
             }
             if audioTracks.count == 2, let audio = try await asset.loadTracks(withMediaType: .audio).first {
-                let audioRange = wanted.intersection(try await audio.load(.timeRange))
+                // Sound no longer than the picture: a file whose audio runs
+                // on past its last frame (downloaded reels often do) would
+                // otherwise leave a stretch with sound but no picture
+                // instruction, and the whole composition draws black.
+                let audioRange = range.intersection(try await audio.load(.timeRange))
                 if audioRange.duration > .zero {
                     try audioTracks[t].insertTimeRange(audioRange, of: audio, at: cursor)
                     if clip.speed != 1 {

@@ -306,8 +306,10 @@ final class VideoEditorModel: ObservableObject {
         for (index, url) in urls.enumerated() {
             phase = .importing(index + 1, urls.count)
             let asset = AVURLAsset(url: url)
-            guard let seconds = try? await asset.load(.duration).seconds, seconds > 0,
-                  let hasVideo = try? await !asset.loadTracks(withMediaType: .video).isEmpty, hasVideo else {
+            // The clip is as long as its picture. The file's own duration
+            // can run a little past the last frame when the sound does.
+            guard let video = try? await asset.loadTracks(withMediaType: .video).first,
+                  let seconds = try? await video.load(.timeRange).duration.seconds, seconds > 0 else {
                 skipped.append(url.lastPathComponent)
                 continue
             }
