@@ -130,7 +130,17 @@ final class VideoEditorModel: ObservableObject {
                 let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
                 return da > db
             }
+        // How many clips each has, so the list can say which are empty.
+        var counts: [URL: Int] = [:]
+        for folder in recentProjects {
+            counts[folder] = (try? VideoProject.load(from: folder))?.clips.count ?? 0
+        }
+        recentProjectClipCounts = counts
     }
+
+    /// Clips per recent project folder; an empty project can't be opened
+    /// from the list — there's nothing in it to edit.
+    @Published private(set) var recentProjectClipCounts: [URL: Int] = [:]
 
     /// A folder name that's safe on disk and unique under the projects root.
     static func folderName(for name: String, existing: (String) -> Bool) -> String {
