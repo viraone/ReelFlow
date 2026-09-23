@@ -353,7 +353,10 @@ enum VideoExporter {
             var outline = fill
             outline[.strokeColor] = strokeColor
             outline[.strokeWidth] = style.strokeWidth * 2 / style.fontSize * 100
-            let layer = textLayer(shown, attributes: outline, frame: textFrame.insetBy(dx: inset, dy: inset))
+            // The text box was measured with `inset` of slack on each side
+            // for exactly this outline; keep that width, or the stroke on
+            // the first and last letters is cut off at the layer's edge.
+            let layer = textLayer(shown, attributes: outline, frame: textFrame.insetBy(dx: 0, dy: inset))
             container.addSublayer(layer)
             backmost = layer
         }
@@ -362,7 +365,7 @@ enum VideoExporter {
            let range = wordRanges(in: shown).dropFirst(highlight).first {
             letters.addAttribute(.foregroundColor, value: accent, range: range)
         }
-        let face = textLayer(letters, frame: textFrame.insetBy(dx: inset, dy: inset))
+        let face = textLayer(letters, frame: textFrame.insetBy(dx: 0, dy: inset))
         container.addSublayer(face)
         if let shadowColor = style.shadowColor {
             let target = backmost ?? face
