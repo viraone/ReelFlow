@@ -386,6 +386,12 @@ enum VideoExporter {
         layer.contentsScale = 2
         layer.masksToBounds = false
         layer.frame = frame
+        // A text layer draws its letters lazily, and the exporter can render
+        // its first seconds of frames before that happens — empty pills at
+        // the start of the video. Draw now, so the letters are there from
+        // the first frame.
+        layer.setNeedsDisplay()
+        layer.displayIfNeeded()
         return layer
     }
 
