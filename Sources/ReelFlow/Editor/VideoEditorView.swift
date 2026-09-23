@@ -141,7 +141,6 @@ struct VideoEditorView: View {
                                         .help("Delete this project (its video files stay)")
                                     }
                                 }
-                                }
                             }
                         }
                         .frame(maxHeight: 160)
