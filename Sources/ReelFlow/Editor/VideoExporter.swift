@@ -108,6 +108,7 @@ enum VideoExporter {
             composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
         }
         let render = project.renderSize
+        let background = project.canvasBackground.cgColor
         let clips = project.clips.filter { $0.duration > 0 }
         var placed: [Placed] = []
         var cursor = CMTime.zero
@@ -194,7 +195,7 @@ enum VideoExporter {
                 over.setOpacityRamp(fromStartOpacity: 0, toEndOpacity: 1, timeRange: overlap)
                 let mix = AVMutableVideoCompositionInstruction()
                 mix.timeRange = overlap
-                mix.backgroundColor = CGColor(gray: 0, alpha: 1)
+                mix.backgroundColor = background
                 mix.layerInstructions = [over, under]
                 instructions.append(mix)
                 bodyStart = overlap.end
@@ -214,7 +215,7 @@ enum VideoExporter {
             }
             let body = AVMutableVideoCompositionInstruction()
             body.timeRange = CMTimeRange(start: bodyStart, end: entry.range.end)
-            body.backgroundColor = CGColor(gray: 0, alpha: 1)
+            body.backgroundColor = background
             body.layerInstructions = [layer]
             if body.timeRange.duration > .zero { instructions.append(body) }
         }

@@ -774,7 +774,7 @@ struct VideoEditorView: View {
             }
         }
         .frame(width: width, height: height)
-        .background(Color.black)
+        .background(canvasColor)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
     }
@@ -934,6 +934,14 @@ struct VideoEditorView: View {
             )
             .position(centre)
             .help(overlay.kind == .text ? "Drag to move this title; click to edit it" : "Drag to move this picture; click to size it")
+    }
+
+    /// The project's background as a SwiftUI colour.
+    private var canvasColor: Color { Self.color(of: model.canvasBackground) }
+
+    private static func color(of background: CanvasBackground) -> Color {
+        let (r, g, b) = background.rgb
+        return Color(red: r, green: g, blue: b)
     }
 
     private func badge(_ text: String, tint: Color) -> some View {
@@ -1860,7 +1868,30 @@ struct VideoEditorView: View {
                     tile("minus.magnifyingglass", "Out", help: "Zoom out (or pinch on the video)") { model.zoom(by: 1 / 1.15) }
                     tile("plus.magnifyingglass", "In", help: "Zoom in — crops from the centre (or pinch on the video)") { model.zoom(by: 1.15) }
                     tile("rectangle.arrowtriangle.2.inward", "Fill", help: "Zoom just enough that the picture fills the whole \(model.frameFormat.ratio) frame with no black bars") { model.zoomToFill() }
-                    tile("rectangle.arrowtriangle.2.outward", "Fit", help: "Show the whole picture (black bars where the shapes differ)") { model.setZoom(1) }
+                    tile("rectangle.arrowtriangle.2.outward", "Fit", help: "Show the whole picture (background where the shapes differ)") { model.setZoom(1) }
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("BACKGROUND  \(model.canvasBackground.name.uppercased())")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .kerning(1)
+                        .foregroundStyle(.white.opacity(0.4))
+                    HStack(spacing: 8) {
+                        ForEach(CanvasBackground.allCases) { choice in
+                            Button { model.setBackground(choice) } label: {
+                                Circle()
+                                    .fill(Self.color(of: choice))
+                                    .frame(width: 24, height: 24)
+                                    .overlay(Circle().strokeBorder(choice == model.canvasBackground ? accent : Color.white.opacity(0.25),
+                                                                   lineWidth: choice == model.canvasBackground ? 2.5 : 1))
+                            }
+                            .buttonStyle(.plain)
+                            .help("\(choice.name) behind the picture — the bars beside a landscape clip, or the bands when it's zoomed out")
+                        }
+                    }
+                    Text("Zoom Out past 1× shrinks the picture and leaves bands above and below in this colour — room for a banner (see Text).")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.white.opacity(0.65))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Text("The bars on the timeline are the sound: tall where you're talking, flat in the gaps — cut in a gap. Click anywhere on the timeline to jump there, or drag to scrub. Two halves of the same take show a Rejoin pill on their seam.")
                     .font(.system(size: 13))
@@ -2035,9 +2066,14 @@ struct VideoEditorView: View {
         let titles = model.project?.overlays.filter { $0.kind == .text } ?? []
         return toolCard(title: "TEXT", trailing: titles.isEmpty ? nil : "\(titles.count) title\(titles.count == 1 ? "" : "s")") {
             VStack(alignment: .leading, spacing: 12) {
-                pillButton("Add title", icon: "plus", prominent: true) { model.addTitle() }
-                    .disabled(!hasClips)
-                    .opacity(hasClips ? 1 : 0.45)
+                HStack(spacing: 8) {
+                    pillButton("Add title", icon: "plus", prominent: true) { model.addTitle() }
+                        .help("One title, at the top of the video, in the subtitle style")
+                    pillButton("Add banner", icon: "rectangle.split.3x1") { model.addBanner() }
+                        .help("Promo layout: the picture shrinks to the middle on a dark background, with a show title above and the name and date below")
+                }
+                .disabled(!hasClips)
+                .opacity(hasClips ? 1 : 0.45)
                 if titles.isEmpty {
                     emptyRow(icon: "textbox", text: "A hook at the top of the video, a name, a punchline. Add one, type over it, then drag it anywhere on the video.")
                 } else {

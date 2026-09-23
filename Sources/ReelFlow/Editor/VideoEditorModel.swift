@@ -742,6 +742,45 @@ final class VideoEditorModel: ObservableObject {
         return image
     }
 
+    // MARK: Background and banner
+
+    var canvasBackground: CanvasBackground { project?.canvasBackground ?? .default }
+
+    /// The colour behind the picture. The composition draws it, so the
+    /// preview is rebuilt.
+    func setBackground(_ background: CanvasBackground) {
+        guard let p = project, p.canvasBackground != background else { return }
+        edit { $0.background = background.rawValue }
+    }
+
+    /// A promo layout in one click: the picture shrinks to the middle of
+    /// the frame on a dark background, with a show title above and the
+    /// name and date below — placeholders, ready to be typed over. The
+    /// user adds their logo from Picture.
+    func addBanner() {
+        guard let p = project, !p.clips.isEmpty else { return }
+        let style = stylePreset
+        let top = Overlay(kind: .text, text: "LIVE STAND-UP COMEDY", anchor: CaptionAnchor(x: 0.5, y: 0.93),
+                          style: style.rawValue, scale: 0.85)
+        let name = Overlay(kind: .text, text: "YOUR NAME", anchor: CaptionAnchor(x: 0.5, y: 0.10),
+                           style: style.rawValue, scale: 1.1)
+        let when = Overlay(kind: .text, text: "JUNE 27 · SEATTLE", anchor: CaptionAnchor(x: 0.5, y: 0.04),
+                           style: style.rawValue, scale: 0.75)
+        edit(seekTo: nil) { project in
+            if project.canvasBackground == .black { project.background = CanvasBackground.charcoal.rawValue }
+            for i in project.clips.indices {
+                project.clips[i].zoom = 0.72
+                project.clips[i].panX = 0
+                project.clips[i].panY = 0
+            }
+            project.addOverlay(top)
+            project.addOverlay(name)
+            project.addOverlay(when)
+        }
+        selectedOverlayID = name.id
+        note = "Banner added — type over the titles, drag them, and add your logo from Picture. ⌘Z takes it all back."
+    }
+
     // MARK: Frame
 
     /// The shape the video is framed and exported in.

@@ -61,7 +61,9 @@ struct EditClip: Codable, Equatable, Identifiable {
     /// How this clip hands over to the next one.
     var transition: ClipTransition
 
-    static let minZoom = 1.0
+    /// Below 1 the picture is smaller than the frame, leaving bands of the
+    /// project's background above and below — room for a banner.
+    static let minZoom = 0.5
     static let maxZoom = 4.0
     static let speeds: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2, 3]
 
@@ -134,6 +136,36 @@ enum ClipTransition: String, Codable, CaseIterable {
         case .dissolve: "circle.lefthalf.filled"
         case .fade: "moon.fill"
         }
+    }
+}
+
+/// The colour behind the picture: the bars beside a landscape clip, and
+/// the bands above and below a clip zoomed out for a banner.
+enum CanvasBackground: String, Codable, CaseIterable, Identifiable {
+    case black, charcoal, slate, navy, plum, forest, cream, white
+
+    static let `default` = CanvasBackground.black
+    var id: String { rawValue }
+
+    var name: String { rawValue.prefix(1).uppercased() + rawValue.dropFirst() }
+
+    /// Red, green, blue in 0…1.
+    var rgb: (Double, Double, Double) {
+        switch self {
+        case .black: (0, 0, 0)
+        case .charcoal: (0.13, 0.13, 0.14)
+        case .slate: (0.20, 0.23, 0.28)
+        case .navy: (0.07, 0.11, 0.24)
+        case .plum: (0.24, 0.09, 0.22)
+        case .forest: (0.07, 0.20, 0.14)
+        case .cream: (0.96, 0.93, 0.86)
+        case .white: (1, 1, 1)
+        }
+    }
+
+    var cgColor: CGColor {
+        let (r, g, b) = rgb
+        return CGColor(srgbRed: r, green: g, blue: b, alpha: 1)
     }
 }
 
@@ -286,6 +318,8 @@ struct VideoProject: Codable, Equatable {
     var clipVolume: Double = 1
     /// Titles and pictures laid over the video, back to front.
     var overlays: [Overlay] = []
+    /// What shows where the picture doesn't reach — a `CanvasBackground` by name.
+    var background: String = CanvasBackground.default.rawValue
 
     init(name: String, clips: [EditClip] = [], created: Date = Date(), transcripts: [String: [SpokenWord]] = [:],
          spokenLanguage: String = VideoProject.defaultSpokenLanguage, translationLanguage: String? = nil,
@@ -302,7 +336,7 @@ struct VideoProject: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case version, name, clips, created, transcripts, transcriptVersion, spokenLanguage, translationLanguage, subtitleStyle, captionAnchor,
-             frameFormat, music, clipVolume, overlays
+             frameFormat, music, clipVolume, overlays, background
     }
 
     init(from decoder: Decoder) throws {
@@ -324,7 +358,10 @@ struct VideoProject: Codable, Equatable {
         music = try c.decodeIfPresent(MusicTrack.self, forKey: .music)
         clipVolume = try c.decodeIfPresent(Double.self, forKey: .clipVolume) ?? 1
         overlays = try c.decodeIfPresent([Overlay].self, forKey: .overlays) ?? []
+        background = try c.decodeIfPresent(String.self, forKey: .background) ?? CanvasBackground.default.rawValue
     }
+
+    var canvasBackground: CanvasBackground { CanvasBackground(rawValue: background) ?? .default }
 
     var stylePreset: SubtitleStylePreset { SubtitleStylePreset(rawValue: subtitleStyle) ?? .default }
 
