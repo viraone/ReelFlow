@@ -646,7 +646,7 @@ struct VideoEditorView: View {
                 dismissButton
             case .exported(let url):
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                coachText("Done! Saved \(url.lastPathComponent) with its subtitles (.srt) and transcript (.txt).")
+                coachText("Done! \(url.lastPathComponent)")
                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                     .buttonStyle(.plain).foregroundStyle(accent).fontWeight(.semibold)
                 Spacer()

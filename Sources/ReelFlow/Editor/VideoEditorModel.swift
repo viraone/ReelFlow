@@ -1172,7 +1172,7 @@ final class VideoEditorModel: ObservableObject {
                 try? project.transcript.write(to: base.appendingPathExtension("txt"), atomically: true, encoding: .utf8)
                 phase = .exported(movie)
                 lastExport = movie
-                note = "Saved \(movie.lastPathComponent) with its .srt and transcript."
+                note = "Done! \(movie.lastPathComponent)"
                 NSWorkspace.shared.activateFileViewerSelecting([movie])
             } catch {
                 phase = .failed(error.localizedDescription)
