@@ -221,22 +221,33 @@ struct VideoEditorView: View {
                 }
                 .coordinateSpace(name: "editorRow")
                 .frame(maxHeight: .infinity)
+                .background(GeometryReader { g in
+                    Color.clear.onChange(of: g.size.height, initial: true) { _, height in editorRowHeight = height }
+                })
                 // Lifts the dragged panel over the timeline below.
                 .zIndex(1)
                 .onChange(of: geo.size.width, initial: true) { _, width in
                     editorWidth = width
                     trimPanelWidth = panelWidth
                 }
-                timelineGrip(maxExtra: Self.maxTimelineExtra(for: geo.size.height))
+                timelineGrip
                     .padding(.bottom, -6)
                 timelineDock
+                    // The row above can't shrink below the rail or the picture's
+                    // floor, so a timeline that no longer fits (pulled tall in a
+                    // big window, opened in a small one) would hang below the
+                    // window's edge. Whatever hangs below is taken back.
+                    .background(GeometryReader { g in
+                        Color.clear.onChange(of: g.frame(in: .named("editor")).maxY, initial: true) { _, bottom in
+                            let overflow = bottom - geo.size.height
+                            if overflow > 0.5 {
+                                timelineExtra = max(Double(Self.minTimelineExtra), timelineExtra - Double(overflow))
+                            }
+                        }
+                    })
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
-            // A timeline pulled tall on a big panel is reined in on a short one.
-            .onChange(of: geo.size.height, initial: true) { _, height in
-                let most = Double(Self.maxTimelineExtra(for: height))
-                if timelineExtra > most { timelineExtra = most }
-            }
+            .coordinateSpace(name: "editor")
         }
         // Hosts the on-device translator; it has to be somewhere that's
         // always on screen while a project is open.
@@ -339,11 +350,11 @@ struct VideoEditorView: View {
     }
 
     private var rail: some View {
-        VStack(spacing: 3) {
+        VStack(spacing: Self.railSpacing) {
             ForEach(Tool.allCases) { tool in railItem(tool) }
             Spacer(minLength: 0)
         }
-        .padding(6)
+        .padding(Self.railPadding)
         .frame(width: 66)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(
@@ -384,7 +395,7 @@ struct VideoEditorView: View {
                     .minimumScaleFactor(0.8)
             }
             .foregroundStyle(open ? accent : Color.white.opacity(0.75))
-            .frame(width: 54, height: 44)
+            .frame(width: 54, height: Self.railItemHeight)
             .background(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .fill(open ? accent.opacity(0.16) : Color.clear)
@@ -1082,10 +1093,10 @@ struct VideoEditorView: View {
     /// style. Auto-subtitle lives in the Subtitles panel.
     private var canvas: some View {
         GeometryReader { geo in
-            let barHeight: CGFloat = 44
+            let barHeight = Self.canvasBarHeight
             // As tall as the panel allows, but never wider than the canvas.
-            let height = max(160, min(geo.size.height - barHeight - 12, (geo.size.width - 16) / model.frameFormat.aspect))
-            VStack(spacing: 12) {
+            let height = max(Self.previewMinHeight, min(geo.size.height - barHeight - Self.canvasSpacing, (geo.size.width - 16) / model.frameFormat.aspect))
+            VStack(spacing: Self.canvasSpacing) {
                 Spacer(minLength: 0)
                 preview(height: height)
                     .background(GeometryReader { frame in
@@ -1184,18 +1195,30 @@ struct VideoEditorView: View {
 
     // MARK: Timeline
 
-    /// How far the timeline may be pulled up on a panel this tall: the
-    /// video keeps enough room to be worth looking at.
-    private static func maxTimelineExtra(for height: CGFloat) -> CGFloat {
-        max(0, min(260, height - 520))
+    // The editor row (rail, panel, canvas) sits between the header and the
+    // timeline. It can't be shorter than the rail with every tool showing,
+    // nor than the picture at its floor with the bar under it; the grip's
+    // range is whatever the row is taller than that right now.
+    static let railItemHeight: CGFloat = 44
+    static let railSpacing: CGFloat = 3
+    static let railPadding: CGFloat = 6
+    static let previewMinHeight: CGFloat = 160
+    static let canvasBarHeight: CGFloat = 44
+    static let canvasSpacing: CGFloat = 12
+    static var railMinHeight: CGFloat {
+        let count = CGFloat(Tool.allCases.count)
+        return count * railItemHeight + (count - 1) * railSpacing + 2 * railPadding
     }
+    static var editorRowMinHeight: CGFloat { max(railMinHeight, previewMinHeight + canvasBarHeight + canvasSpacing) }
+    /// Dragging down past the rest position lets the clip strip shrink from 84pt to 48pt.
+    static let minTimelineExtra: CGFloat = -36
 
     /// VEED's split between the canvas and the timeline: pull it up for a
     /// taller timeline (bigger frames, a taller sound strip), down for more
     /// video. The whole line is the handle, not just the pill: the grab
     /// band runs the full width and well above and below the line. Double-
     /// click puts it back.
-    private func timelineGrip(maxExtra: CGFloat) -> some View {
+    private var timelineGrip: some View {
         let active = gripHover || gripDragStart != nil
         return ZStack {
             Rectangle()
@@ -1220,10 +1243,15 @@ struct VideoEditorView: View {
                 cursor: .resizeUpDown,
                 onHover: { gripHover = $0 },
                 onDrag: { translation in
+                    if gripDragStart == nil {
+                        gripDragStart = CGFloat(timelineExtra)
+                        // The row above gives up what it has over its floor; past
+                        // that the timeline would only grow below the window.
+                        gripDragMax = CGFloat(timelineExtra) + max(0, editorRowHeight - Self.editorRowMinHeight)
+                    }
                     let from = gripDragStart ?? CGFloat(timelineExtra)
-                    if gripDragStart == nil { gripDragStart = from }
                     // Up is a negative translation, and up means taller.
-                    timelineExtra = Double(min(max(0, from - translation.height), maxExtra))
+                    timelineExtra = Double(min(max(Self.minTimelineExtra, from - translation.height), gripDragMax))
                 },
                 onEnd: { gripDragStart = nil },
                 onReset: { timelineExtra = 0 }
@@ -1334,6 +1362,8 @@ struct VideoEditorView: View {
     @AppStorage("reelflowTimelineExtra") private var timelineExtra: Double = 0
     @State private var gripHover = false
     @State private var gripDragStart: CGFloat?
+    @State private var gripDragMax: CGFloat = 0
+    @State private var editorRowHeight: CGFloat = 0
 
     /// Ruler 22 + gap 4 + subtitles 22 + gap 4 + clips.
     private var tracksHeight: CGFloat { 22 + 4 + Self.subtitleLaneHeight + 4 + clipHeight }
@@ -1973,63 +2003,65 @@ struct VideoEditorView: View {
         let speed = model.selectedClip?.speed ?? 1
         let transition = model.selectedClip?.transition ?? .none
         return toolCard(title: "TRIM", trailing: model.selectedClip.map { "\($0.name) · \(VideoEditorModel.clock($0.duration))" }, movable: true) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Press Play and stop where you want to cut. Everything here works on the highlighted clip, at the playhead.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color.white.opacity(0.65))
-                    .fixedSize(horizontal: false, vertical: true)
-                controlGroup("CUT AT THE PLAYHEAD") {
-                    tile("scissors", "Split", help: "Cut the clip into two at the playhead — then remove the half you don't want") { model.splitAtPlayhead() }
-                    tile("arrow.right.to.line", "Cut before", help: "Throw away everything in this clip before the playhead") { model.trimStartToPlayhead() }
-                    tile("arrow.left.to.line", "Cut after", help: "Throw away everything in this clip after the playhead") { model.trimEndToPlayhead() }
-                }
-                controlGroup("SPEED  \(Self.speedLabel(speed))") {
-                    ForEach([0.5, 1.0, 1.5, 2.0], id: \.self) { choice in
-                        tile(Self.speedIcon(choice), Self.speedLabel(choice), help: Self.speedHelp(choice),
-                             selected: abs(speed - choice) < 0.01) { model.setSpeed(choice) }
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Press Play and stop where you want to cut. Everything here works on the highlighted clip, at the playhead.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.white.opacity(0.65))
+                        .fixedSize(horizontal: false, vertical: true)
+                    controlGroup("CUT AT THE PLAYHEAD") {
+                        tile("scissors", "Split", help: "Cut the clip into two at the playhead — then remove the half you don't want") { model.splitAtPlayhead() }
+                        tile("arrow.right.to.line", "Cut before", help: "Throw away everything in this clip before the playhead") { model.trimStartToPlayhead() }
+                        tile("arrow.left.to.line", "Cut after", help: "Throw away everything in this clip after the playhead") { model.trimEndToPlayhead() }
                     }
-                }
-                controlGroup("TRANSITION TO THE NEXT CLIP") {
-                    ForEach(ClipTransition.allCases, id: \.self) { choice in
-                        tile(choice.icon, choice.name, help: Self.transitionHelp(choice),
-                             selected: transition == choice) { model.setTransition(choice) }
-                    }
-                }
-                controlGroup("PICTURE ZOOM  \(String(format: "%.1f×", zoom))") {
-                    tile("minus.magnifyingglass", "Out", help: "Zoom out (or pinch on the video)") { model.zoom(by: 1 / 1.15) }
-                    tile("plus.magnifyingglass", "In", help: "Zoom in — crops from the centre (or pinch on the video)") { model.zoom(by: 1.15) }
-                    tile("rectangle.arrowtriangle.2.inward", "Fill", help: "Zoom just enough that the picture fills the whole \(model.frameFormat.ratio) frame with no black bars") { model.zoomToFill() }
-                    tile("rectangle.arrowtriangle.2.outward", "Fit", help: "Show the whole picture (background where the shapes differ)") { model.setZoom(1) }
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("BACKGROUND  \(model.canvasBackground.name.uppercased())")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .kerning(1)
-                        .foregroundStyle(.white.opacity(0.4))
-                    HStack(spacing: 8) {
-                        ForEach(CanvasBackground.allCases) { choice in
-                            Button { model.setBackground(choice) } label: {
-                                Circle()
-                                    .fill(Self.color(of: choice))
-                                    .frame(width: 24, height: 24)
-                                    .overlay(Circle().strokeBorder(choice == model.canvasBackground ? accent : Color.white.opacity(0.25),
-                                                                   lineWidth: choice == model.canvasBackground ? 2.5 : 1))
-                            }
-                            .buttonStyle(.plain)
-                            .help("\(choice.name) behind the picture — the bars beside a landscape clip, or the bands when it's zoomed out")
+                    controlGroup("SPEED  \(Self.speedLabel(speed))") {
+                        ForEach([0.5, 1.0, 1.5, 2.0], id: \.self) { choice in
+                            tile(Self.speedIcon(choice), Self.speedLabel(choice), help: Self.speedHelp(choice),
+                                 selected: abs(speed - choice) < 0.01) { model.setSpeed(choice) }
                         }
                     }
-                    Text("Zoom Out past 1× shrinks the picture and leaves bands above and below in this colour — room for a banner (see Text).")
+                    controlGroup("TRANSITION TO THE NEXT CLIP") {
+                        ForEach(ClipTransition.allCases, id: \.self) { choice in
+                            tile(choice.icon, choice.name, help: Self.transitionHelp(choice),
+                                 selected: transition == choice) { model.setTransition(choice) }
+                        }
+                    }
+                    controlGroup("PICTURE ZOOM  \(String(format: "%.1f×", zoom))") {
+                        tile("minus.magnifyingglass", "Out", help: "Zoom out (or pinch on the video)") { model.zoom(by: 1 / 1.15) }
+                        tile("plus.magnifyingglass", "In", help: "Zoom in — crops from the centre (or pinch on the video)") { model.zoom(by: 1.15) }
+                        tile("rectangle.arrowtriangle.2.inward", "Fill", help: "Zoom just enough that the picture fills the whole \(model.frameFormat.ratio) frame with no black bars") { model.zoomToFill() }
+                        tile("rectangle.arrowtriangle.2.outward", "Fit", help: "Show the whole picture (background where the shapes differ)") { model.setZoom(1) }
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("BACKGROUND  \(model.canvasBackground.name.uppercased())")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .kerning(1)
+                            .foregroundStyle(.white.opacity(0.4))
+                        HStack(spacing: 8) {
+                            ForEach(CanvasBackground.allCases) { choice in
+                                Button { model.setBackground(choice) } label: {
+                                    Circle()
+                                        .fill(Self.color(of: choice))
+                                        .frame(width: 24, height: 24)
+                                        .overlay(Circle().strokeBorder(choice == model.canvasBackground ? accent : Color.white.opacity(0.25),
+                                                                       lineWidth: choice == model.canvasBackground ? 2.5 : 1))
+                                }
+                                .buttonStyle(.plain)
+                                .help("\(choice.name) behind the picture — the bars beside a landscape clip, or the bands when it's zoomed out")
+                            }
+                        }
+                        Text("Zoom Out past 1× shrinks the picture and leaves bands above and below in this colour — room for a banner (see Text).")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color.white.opacity(0.65))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Text("The bars on the timeline are the sound: tall where you're talking, flat in the gaps — cut in a gap. Click anywhere on the timeline to jump there, or drag to scrub. Two halves of the same take show a Rejoin pill on their seam.")
                         .font(.system(size: 13))
                         .foregroundStyle(Color.white.opacity(0.65))
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                Text("The bars on the timeline are the sound: tall where you're talking, flat in the gaps — cut in a gap. Click anywhere on the timeline to jump there, or drag to scrub. Two halves of the same take show a Rejoin pill on their seam.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color.white.opacity(0.65))
-                    .fixedSize(horizontal: false, vertical: true)
+                .disabled(!hasClips || model.phase.isBusy)
             }
-            .disabled(!hasClips || model.phase.isBusy)
         }
     }
 
