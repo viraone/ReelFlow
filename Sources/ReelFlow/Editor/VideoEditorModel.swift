@@ -914,7 +914,7 @@ final class VideoEditorModel: ObservableObject {
                 currentTime = 0
             } catch {
                 guard generation == previewGeneration else { return }
-                note = "Preview failed: \(error.localizedDescription)"
+                note = "Preview failed: \(error.localizedDescription) (\((error as NSError).code))"
             }
         }
     }

@@ -93,7 +93,9 @@ enum VideoExporter {
     /// and the song on their own tracks. No captions or overlays: those
     /// are drawn by the preview itself, and burned in only on export.
     /// Clips alternate between two video tracks so a dissolve can overlap
-    /// the end of one with the start of the next.
+    /// the end of one with the start of the next. A clip inserted past the
+    /// end of its track leaves an empty edit behind it, as in Apple's own
+    /// transition sample — nothing is padded by hand.
     /// `zoomed` false leaves every clip at the fit; the preview zooms live
     /// on its own layer instead, so a zoom never rebuilds the player.
     static func build(_ project: VideoProject, zoomed: Bool = true) async throws -> Timeline {
@@ -121,7 +123,6 @@ enum VideoExporter {
             let t = placed.count % 2
             let videoTrack = videoTracks[t]
             let scaled = CMTime(seconds: range.duration.seconds / max(0.01, clip.speed), preferredTimescale: timescale)
-            pad(videoTrack, to: cursor)
             try videoTrack.insertTimeRange(range, of: source, at: cursor)
             if clip.speed != 1 {
                 videoTrack.scaleTimeRange(CMTimeRange(start: cursor, duration: range.duration), toDuration: scaled)
@@ -129,7 +130,6 @@ enum VideoExporter {
             if audioTracks.count == 2, let audio = try await asset.loadTracks(withMediaType: .audio).first {
                 let audioRange = wanted.intersection(try await audio.load(.timeRange))
                 if audioRange.duration > .zero {
-                    pad(audioTracks[t], to: cursor)
                     try audioTracks[t].insertTimeRange(audioRange, of: audio, at: cursor)
                     if clip.speed != 1 {
                         let scaledAudio = CMTime(seconds: audioRange.duration.seconds / max(0.01, clip.speed), preferredTimescale: timescale)
@@ -241,14 +241,6 @@ enum VideoExporter {
         videoComposition.instructions = instructions
         return Timeline(composition: composition, videoComposition: videoComposition,
                         clipAudioTracks: audioTracks, musicTrack: musicTrack, duration: total)
-    }
-
-    /// A track's content alternates with the other track's, so before a
-    /// clip goes in, the gap since this track's last clip is filled with
-    /// an empty edit — the insert then lands exactly at `time`.
-    private static func pad(_ track: AVMutableCompositionTrack, to time: CMTime) {
-        let end = track.segments.last?.timeMapping.target.end ?? .zero
-        if end < time { track.insertEmptyTimeRange(CMTimeRange(start: end, end: time)) }
     }
 
     /// How long the hand-over between two clips runs: the standard length,
