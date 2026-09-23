@@ -211,7 +211,20 @@ struct VideoEditorView: View {
             chosenTool = nil
             panelHidden = false
         }
+        // Removing a clip is the one edit with no undo: it takes the cuts
+        // and subtitles with it, so it asks first.
+        .confirmationDialog(
+            "Remove \u{201C}\(model.selectedClip?.name ?? "this clip")\u{201D} from the video?",
+            isPresented: $confirmingRemove, titleVisibility: .visible
+        ) {
+            Button("Remove clip", role: .destructive) { model.removeSelectedClip() }
+            Button("Keep it", role: .cancel) {}
+        } message: {
+            Text("The clip comes off the timeline along with its cuts and subtitles. The video file stays on your Mac — to get the clip back you'd import it again.")
+        }
     }
+
+    @State private var confirmingRemove = false
 
     // MARK: Tools
 
@@ -1052,7 +1065,7 @@ struct VideoEditorView: View {
                 transportButton("arrow.right", labels ? "Later" : nil,
                                 help: "Move the highlighted clip one place later") { model.moveSelectedClip(by: 1) }
                 transportButton("trash", labels ? "Remove" : nil, destructive: true,
-                                help: "Take the highlighted clip out of the video (the file stays on disk)") { model.removeSelectedClip() }
+                                help: "Take the highlighted clip out of the video (the file stays on disk)") { confirmingRemove = true }
             }
         }
     }
@@ -1642,7 +1655,7 @@ struct VideoEditorView: View {
                     controlGroup("HIGHLIGHTED CLIP") {
                         tile("arrow.left", "Earlier", help: "Move the highlighted clip one place earlier") { model.moveSelectedClip(by: -1) }
                         tile("arrow.right", "Later", help: "Move the highlighted clip one place later") { model.moveSelectedClip(by: 1) }
-                        tile("trash", "Remove", help: "Take the highlighted clip out of the video (the file stays on disk)", destructive: true) { model.removeSelectedClip() }
+                        tile("trash", "Remove", help: "Take the highlighted clip out of the video (the file stays on disk)", destructive: true) { confirmingRemove = true }
                     }
                     .disabled(model.selectedClip == nil || model.phase.isBusy)
                 }
