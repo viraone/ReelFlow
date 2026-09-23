@@ -108,39 +108,39 @@ struct VideoEditorView: View {
                                 ForEach(model.recentProjects, id: \.self) { folder in
                                     let clips = model.recentProjectClipCounts[folder] ?? 0
                                     let empty = clips == 0
-                                    Button { model.open(folder: folder) } label: {
-                                        HStack {
-                                            Image(systemName: "folder.fill").foregroundStyle(accent.opacity(empty ? 0.3 : 0.8))
-                                            Text(folder.lastPathComponent)
-                                            Spacer()
-                                            Text(empty ? "no clips" : "\(clips) clip\(clips == 1 ? "" : "s")")
-                                                .font(.system(size: 11, design: .monospaced))
-                                                .foregroundStyle(.white.opacity(0.4))
-                                            if !empty {
-                                                Image(systemName: "chevron.right").foregroundStyle(.white.opacity(0.3))
+                                    HStack(spacing: 6) {
+                                        Button { model.open(folder: folder) } label: {
+                                            HStack {
+                                                Image(systemName: "folder.fill").foregroundStyle(accent.opacity(empty ? 0.3 : 0.8))
+                                                Text(folder.lastPathComponent)
+                                                Spacer()
+                                                Text(empty ? "no clips" : "\(clips) clip\(clips == 1 ? "" : "s")")
+                                                    .font(.system(size: 11, design: .monospaced))
+                                                    .foregroundStyle(.white.opacity(0.4))
+                                                Image(systemName: "chevron.right")
+                                                    .foregroundStyle(.white.opacity(empty ? 0 : 0.3))
                                             }
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 8)
+                                            .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(empty ? 0.03 : 0.06)))
                                         }
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(empty ? 0.03 : 0.06)))
-                                    }
-                                    .buttonStyle(.plain)
-                                    .foregroundStyle(.white.opacity(empty ? 0.4 : 0.85))
-                                    .disabled(empty)
-                                    .help(empty ? "This project has no clips in it — drop a video on the window to start a new one"
-                                                : "Open this project")
-                                    .overlay(alignment: .trailing) {
+                                        .buttonStyle(.plain)
+                                        .foregroundStyle(.white.opacity(empty ? 0.4 : 0.85))
+                                        .disabled(empty)
+                                        .help(empty ? "This project has no clips in it — drop a video on the window to start a new one"
+                                                    : "Open this project")
                                         Button { deletingProject = folder } label: {
                                             Image(systemName: "trash")
                                                 .font(.system(size: 12, weight: .semibold))
-                                                .foregroundStyle(Color.red.opacity(0.85))
-                                                .frame(width: 26, height: 26)
+                                                .foregroundStyle(Color.red.opacity(0.75))
+                                                .frame(width: 30, height: 34)
+                                                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.04)))
                                                 .contentShape(Rectangle())
                                         }
                                         .buttonStyle(.plain)
-                                        .padding(.trailing, empty ? 8 : 30)
                                         .help("Delete this project (its video files stay)")
                                     }
+                                }
                                 }
                             }
                         }
