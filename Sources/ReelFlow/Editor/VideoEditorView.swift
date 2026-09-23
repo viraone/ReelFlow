@@ -1129,8 +1129,12 @@ struct VideoEditorView: View {
         let preset = model.stylePreset
         let format = model.frameFormat
         let zoom = model.selectedClip?.zoom ?? 1
+        
+        // Use custom ring for Instagram portrait formats, otherwise use default symbol
+        let icon = canvasBarIcon(for: format)
+        
         return HStack(spacing: 2) {
-            barButton(format.isPortrait ? "iphone" : "rectangle.on.rectangle", full ? format.name : format.ratio, chevron: true,
+            barButton(icon, full ? format.name : format.ratio, chevron: true,
                       help: "Frame: \(format.name) · exports at \(format.pixels) — click to resize for another platform") {
                 showFramePicker.toggle()
             }
@@ -1173,10 +1177,10 @@ struct VideoEditorView: View {
         Rectangle().fill(Color.white.opacity(0.1)).frame(width: 1, height: 20).padding(.horizontal, 4)
     }
 
-    private func barButton(_ symbol: String, _ title: String? = nil, chevron: Bool = false, help: String, action: @escaping () -> Void) -> some View {
+    private func barButton(_ icon: some View, _ title: String? = nil, chevron: Bool = false, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 5) {
-                Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
+                icon
                 if let title {
                     Text(title).font(.system(size: 11, weight: .semibold, design: .monospaced)).lineLimit(1)
                 }
@@ -1191,6 +1195,40 @@ struct VideoEditorView: View {
         }
         .buttonStyle(.plain)
         .help(help)
+    }
+
+    /// Helper for String symbols - wraps them in an Image with the same styling as before
+    private func barButton(_ symbol: String, _ title: String? = nil, chevron: Bool = false, help: String, action: @escaping () -> Void) -> some View {
+        let icon = Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
+        return self.barButton(icon, title, chevron: chevron, help: help, action: action)
+    }
+
+    /// Returns the icon to show for a format in the canvas bar.
+    /// Instagram portrait formats get a custom broken ring; others use their symbol.
+    private func canvasBarIcon(for format: FrameFormat) -> some View {
+        Group {
+            if format.brand == .instagram && format.isPortrait {
+                // Broken ring for Instagram portrait formats (Reel, Story)
+                Circle()
+                    .stroke(
+                        AngularGradient(
+                            colors: [
+                                Color(red: 0.99, green: 0.73, blue: 0.27),   // orange
+                                Color(red: 0.87, green: 0.18, blue: 0.44),   // pink
+                                Color(red: 0.51, green: 0.23, blue: 0.71),   // purple
+                                Color(red: 0.99, green: 0.73, blue: 0.27)    // orange (again to close the seam)
+                            ],
+                            center: .center,
+                            startAngle: .degrees(0),
+                            endAngle: .degrees(360)
+                        ),
+                        style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [4, 3])
+                    )
+                    .frame(width: 14, height: 14)
+            } else {
+                Image(systemName: format.symbol).font(.system(size: 11, weight: .semibold))
+            }
+        }
     }
 
     // MARK: Timeline
