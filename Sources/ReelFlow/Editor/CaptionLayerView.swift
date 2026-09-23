@@ -36,6 +36,10 @@ struct CaptionLayerView: NSViewRepresentable {
     final class Host: NSView {
         private var key: String?
         private var caption: CALayer?
+        /// Where the caption sits in render space, as built — kept here
+        /// because `position()` moves and scales the layer, so reading
+        /// its frame back would compound the scale on every re-layout.
+        private var captionFrame = CGRect.zero
         private var render = VideoExporter.renderSize
 
         override var isFlipped: Bool { false }
@@ -54,6 +58,7 @@ struct CaptionLayerView: NSViewRepresentable {
             caption?.removeFromSuperlayer()
             let layer = VideoExporter.captionLayer(text: text, highlight: highlight, style: style, anchor: anchor, render: render)
             caption = layer
+            captionFrame = layer.frame
             self.layer?.addSublayer(layer)
             self.placement = placement
             self.render = render
@@ -69,15 +74,13 @@ struct CaptionLayerView: NSViewRepresentable {
             switch placement {
             case .onVideo:
                 let scale = bounds.width / render.width
-                caption.setAffineTransform(.identity)
                 caption.anchorPoint = CGPoint(x: 0.5, y: 0.5)
                 // Frame is in render space; scale it into the view.
-                let frame = caption.frame
+                let frame = captionFrame
                 caption.setAffineTransform(CGAffineTransform(scaleX: scale, y: scale))
                 caption.position = CGPoint(x: frame.midX * scale, y: frame.midY * scale)
             case .fitted:
-                caption.setAffineTransform(.identity)
-                let frame = caption.frame
+                let frame = captionFrame
                 let scale = min(bounds.width * 0.86 / max(frame.width, 1),
                                 bounds.height * 0.72 / max(frame.height, 1))
                 caption.anchorPoint = CGPoint(x: 0.5, y: 0.5)
