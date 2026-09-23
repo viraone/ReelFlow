@@ -980,9 +980,17 @@ struct VideoEditorView: View {
         var anchor = free
         var guides: [SnapGuide] = []
 
-        if abs(rect.midX - render.width / 2) < tolerance {
-            anchor.x = 0.5
-            guides.append(.vertical(render.width / 2))
+        // Sideways: the middle of the frame, or another title's middle or edges.
+        var sideways: [(edge: CGFloat, target: CGFloat, guide: CGFloat)] = [(rect.midX, render.width / 2, render.width / 2)]
+        for other in model.overlaysNow where other.id != overlay.id {
+            let o = overlayRect(other)
+            sideways.append((rect.midX, o.midX, o.midX))
+            sideways.append((rect.minX, o.minX, o.minX))
+            sideways.append((rect.maxX, o.maxX, o.maxX))
+        }
+        if let best = sideways.min(by: { abs($0.edge - $0.target) < abs($1.edge - $1.target) }), abs(best.edge - best.target) < tolerance {
+            anchor.x = Double((rect.midX + (best.target - best.edge)) / render.width)
+            guides.append(.vertical(best.guide))
         }
         // Whichever horizontal target is nearest wins.
         var targets: [(edge: CGFloat, top: CGFloat, guide: CGFloat)] = []   // where rect.minY should land, or rect.maxY
@@ -994,6 +1002,15 @@ struct VideoEditorView: View {
         targets.append((edge: rect.minY, top: safeBottom, guide: safeBottom))
         let safeTop = render.height * (1 - VideoEditorModel.SafeZone.top)
         targets.append((edge: rect.maxY, top: safeTop, guide: safeTop))
+        // The other titles and pictures on screen: stack snug under or
+        // above one, or line up with its edges.
+        for other in model.overlaysNow where other.id != overlay.id {
+            let o = overlayRect(other)
+            targets.append((edge: rect.maxY, top: o.minY - gap, guide: o.minY))
+            targets.append((edge: rect.minY, top: o.maxY + gap, guide: o.maxY))
+            targets.append((edge: rect.minY, top: o.minY, guide: o.minY))
+            targets.append((edge: rect.maxY, top: o.maxY, guide: o.maxY))
+        }
         if let best = targets.min(by: { abs($0.edge - $0.top) < abs($1.edge - $1.top) }), abs(best.edge - best.top) < tolerance {
             let shift = best.top - best.edge
             anchor.y = Double((rect.midY + shift) / render.height)
