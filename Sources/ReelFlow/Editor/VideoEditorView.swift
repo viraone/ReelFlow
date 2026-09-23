@@ -223,15 +223,32 @@ struct VideoEditorView: View {
         }
         // Removing a clip is the one edit with no undo: it takes the cuts
         // and subtitles with it, so it asks first.
-        .confirmationDialog(
-            "Remove \u{201C}\(model.selectedClip?.name ?? "this clip")\u{201D} from the video?",
-            isPresented: $confirmingRemove, titleVisibility: .visible
-        ) {
-            Button("Remove clip", role: .destructive) { model.removeSelectedClip() }
+        .confirmationDialog(removeTitle, isPresented: $confirmingRemove, titleVisibility: .visible) {
+            Button(removeIsWholeVideo ? "Remove the whole video" : "Remove this piece", role: .destructive) { model.removeSelectedClip() }
             Button("Keep it", role: .cancel) {}
         } message: {
-            Text("The clip comes off the timeline along with its cuts and subtitles. The video file stays on your Mac — to get the clip back you'd import it again.")
+            Text(removeMessage)
         }
+    }
+
+    /// Whether Remove would empty the timeline: the highlighted clip is
+    /// the only one.
+    private var removeIsWholeVideo: Bool { (model.project?.clips.count ?? 0) <= 1 }
+
+    private var removeTitle: String {
+        guard let clip = model.selectedClip else { return "Remove this clip?" }
+        if removeIsWholeVideo { return "Remove the whole video?" }
+        let start = model.project?.start(of: clip.id) ?? 0
+        return "Remove the \(VideoEditorModel.clock(clip.duration)) piece at \(VideoEditorModel.clock(start))?"
+    }
+
+    private var removeMessage: String {
+        let count = model.project?.clips.count ?? 0
+        if removeIsWholeVideo {
+            return "This is the only clip on the timeline. Removing it leaves the project empty — the file stays on your Mac, but you'd have to import it again to get it back."
+        }
+        let others = count - 1
+        return "Only this piece of \u{201C}\(model.selectedClip?.name ?? "the clip")\u{201D} comes off the timeline, with its cuts and subtitles. The other \(others) piece\(others == 1 ? "" : "s") stay\(others == 1 ? "s" : "") as they are."
     }
 
     @State private var confirmingRemove = false
