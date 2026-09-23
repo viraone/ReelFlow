@@ -122,7 +122,11 @@ enum VideoExporter {
             guard range.duration > .zero else { continue }
             let t = placed.count % 2
             let videoTrack = videoTracks[t]
-            let scaled = CMTime(seconds: range.duration.seconds / max(0.01, clip.speed), preferredTimescale: timescale)
+            // At 1× the clip keeps its own exact length: rounding it to
+            // another clock could leave a sliver of the track past the
+            // instruction that covers it, and the composition won't play.
+            let scaled = clip.speed == 1 ? range.duration
+                : CMTime(seconds: range.duration.seconds / max(0.01, clip.speed), preferredTimescale: timescale)
             try videoTrack.insertTimeRange(range, of: source, at: cursor)
             if clip.speed != 1 {
                 videoTrack.scaleTimeRange(CMTimeRange(start: cursor, duration: range.duration), toDuration: scaled)
@@ -154,7 +158,8 @@ enum VideoExporter {
                     .intersection(trackRange)
                 if handle.duration.seconds > 0.05 {
                     try videoTrack.insertTimeRange(handle, of: source, at: cursor)
-                    let tailLength = CMTime(seconds: handle.duration.seconds / max(0.01, clip.speed), preferredTimescale: timescale)
+                    let tailLength = clip.speed == 1 ? handle.duration
+                        : CMTime(seconds: handle.duration.seconds / max(0.01, clip.speed), preferredTimescale: timescale)
                     if clip.speed != 1 {
                         videoTrack.scaleTimeRange(CMTimeRange(start: cursor, duration: handle.duration), toDuration: tailLength)
                     }

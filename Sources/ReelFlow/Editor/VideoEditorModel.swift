@@ -85,6 +85,9 @@ final class VideoEditorModel: ObservableObject {
     private var overlayImages: [String: NSImage] = [:]
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
+    /// Watches the current player item so a composition the player can't
+    /// play says so in the note instead of sitting black.
+    private var itemStatusObserver: NSKeyValueObservation?
     private var previewGeneration = 0
 
     init() {
@@ -940,6 +943,12 @@ final class VideoEditorModel: ObservableObject {
                 // Sped-up or slowed clips keep their pitch.
                 item.audioTimePitchAlgorithm = .spectral
                 previewTimeline = timeline
+                itemStatusObserver = item.observe(\.status, options: [.new]) { [weak self] item, _ in
+                    guard item.status == .failed else { return }
+                    let reason = item.error?.localizedDescription ?? "unknown error"
+                    let code = (item.error as NSError?)?.code ?? 0
+                    Task { @MainActor in self?.note = "Preview can't play: \(reason) (\(code))" }
+                }
                 player.replaceCurrentItem(with: item)
                 seek(to: min(target, max(0, project.duration - 0.05)))
                 if wasPlaying { player.play() }
