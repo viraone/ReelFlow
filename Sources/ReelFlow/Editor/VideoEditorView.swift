@@ -483,18 +483,10 @@ struct VideoEditorView: View {
 
     // MARK: Header
 
-    /// One slim row: project on the left, the four steps in the middle,
-    /// Import / Export on the right.
+    /// One slim row: project on the left, the mode pill (Home · Edit) in
+    /// the middle like VEED's, Import / Export on the right.
     private var header: some View {
         HStack(spacing: 10) {
-            Button { model.closeProject() } label: {
-                Label("Projects", systemImage: "chevron.left")
-                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white.opacity(0.65))
-            .help("Back to the project list")
-
             Text(model.project?.name ?? "")
                 .font(.system(size: 17, weight: .bold, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.95))
@@ -505,7 +497,7 @@ struct VideoEditorView: View {
                 .help("Show this project's folder in Finder")
             projectMenu
             Spacer(minLength: 8)
-            stepTracker
+            modePill
             Spacer(minLength: 8)
             pillButton("Import clips", icon: "square.and.arrow.down") { model.chooseClips() }
                 .help("Add more takes or screen recordings")
@@ -575,26 +567,11 @@ struct VideoEditorView: View {
 
     // MARK: Steps
 
+    /// Where the user is in the job, from what the project holds. It picks
+    /// the tool the panel opens on and the coach line's advice; nothing
+    /// draws it any more.
     private enum Step: Int, CaseIterable {
         case importClips, trim, captions, export
-
-        var title: String {
-            switch self {
-            case .importClips: "Import"
-            case .trim: "Trim"
-            case .captions: "Subtitles"
-            case .export: "Export"
-            }
-        }
-
-        var icon: String {
-            switch self {
-            case .importClips: "square.and.arrow.down"
-            case .trim: "scissors"
-            case .captions: "captions.bubble"
-            case .export: "square.and.arrow.up"
-            }
-        }
     }
 
     private var hasClips: Bool { !(model.project?.clips.isEmpty ?? true) }
@@ -608,82 +585,43 @@ struct VideoEditorView: View {
         return .export
     }
 
-    private func isDone(_ step: Step) -> Bool {
-        switch step {
-        case .importClips: hasClips
-        case .trim: hasCaptions     // Trimming is optional; captions mean you moved on.
-        case .captions: hasCaptions
-        case .export: hasExport
-        }
-    }
+    // MARK: Mode pill
 
-    private func perform(_ step: Step) {
-        switch step {
-        case .importClips: open(.clips); model.chooseClips()
-        case .trim: open(.trim); model.seek(to: model.currentTime)
-        case .captions: open(.subtitles); model.generateCaptions()
-        case .export: open(.export); model.export()
-        }
-    }
-
-    private var stepTracker: some View {
-        HStack(spacing: 4) {
-            ForEach(Step.allCases, id: \.rawValue) { step in
-                stepChip(step)
-                if step != .export {
-                    Rectangle()
-                        .fill(isDone(step) ? accent.opacity(0.6) : Color.white.opacity(0.12))
-                        .frame(width: 10, height: 1.5)
-                }
+    /// VEED's centre pill: Home on the left, then the modes. Home leaves
+    /// the editor for the project list; Edit is the only mode for now, so
+    /// it's always the selected one.
+    private var modePill: some View {
+        HStack(spacing: 2) {
+            Button { model.closeProject() } label: {
+                Image(systemName: "house")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white.opacity(homeHover ? 1 : 0.8))
+                    .frame(width: 36, height: 30)
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.white.opacity(homeHover ? 0.08 : 0)))
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .onHover { homeHover = $0 }
+            .animation(.easeOut(duration: 0.15), value: homeHover)
+            .help("Home: back to your projects")
+            Rectangle().fill(Color.white.opacity(0.14)).frame(width: 1, height: 18).padding(.horizontal, 5)
+            modeTab("Edit", selected: true)
         }
+        .padding(4)
+        .background(Capsule().fill(Color.white.opacity(0.06)))
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.1), lineWidth: 1))
         .fixedSize()
     }
 
-    private func stepChip(_ step: Step) -> some View {
-        let done = isDone(step)
-        let current = step == currentStep && !done
-        let available = step == .importClips || hasClips
-        return Button { perform(step) } label: {
-            HStack(spacing: 6) {
-                ZStack {
-                    Circle()
-                        .fill(done ? accent : (current ? accent.opacity(0.22) : Color.white.opacity(0.08)))
-                        .frame(width: 18, height: 18)
-                    if done {
-                        Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.black)
-                    } else {
-                        Text("\(step.rawValue + 1)")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(current ? accent : .white.opacity(0.6))
-                    }
-                }
-                Text(step.title)
-                    .font(.system(size: 11, weight: current ? .bold : .semibold, design: .monospaced))
-                    .foregroundStyle(current ? .white : .white.opacity(done ? 0.85 : 0.5))
-            }
-            .padding(.leading, 5).padding(.trailing, 10)
-            .padding(.vertical, 4)
-            .background(
-                Capsule().fill(current ? accent.opacity(0.15) : Color.white.opacity(0.04))
-            )
-            .overlay(
-                Capsule().strokeBorder(current ? accent.opacity(0.8) : Color.white.opacity(0.1), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .disabled(!available || model.phase.isBusy)
-        .opacity(available ? 1 : 0.5)
-        .help(stepHelp(step))
-    }
+    @State private var homeHover = false
 
-    private func stepHelp(_ step: Step) -> String {
-        switch step {
-        case .importClips: "Choose the takes and screen recordings for this video"
-        case .trim: "Watch it back and cut out the bits you don't want"
-        case .captions: "Listen to every take and lay word-timed subtitles on the video"
-        case .export: "Save the finished MP4 (\(model.frameFormat.pixels)) with its .srt and transcript"
-        }
+    private func modeTab(_ title: String, selected: Bool) -> some View {
+        Text(title)
+            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+            .foregroundStyle(selected ? .white : .white.opacity(0.6))
+            .padding(.horizontal, 14)
+            .frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(selected ? Color.white.opacity(0.10) : .clear))
     }
 
     // MARK: Coach line
@@ -772,15 +710,15 @@ struct VideoEditorView: View {
     private var nextHint: String {
         switch currentStep {
         case .importClips:
-            "Step 1 — Press Import clips (top right) or drop your video files here."
+            "Press Import clips (top right) or drop your video files here."
         case .trim:
-            "Step 2 — Press Play to watch. Stop where you want to cut, then use Split, Cut before or Cut after in the Trim panel. When it looks right, press Auto-subtitle under the video."
+            "Press Play to watch. Stop where you want to cut, then use Split, Cut before or Cut after in the Trim panel. When it looks right, press Auto-subtitle under the video."
         case .captions:
-            "Step 3 — Press Auto-subtitle under the video to transcribe your takes."
+            "Press Auto-subtitle under the video to transcribe your takes."
         case .export:
             hasExport
                 ? "All done. Import more clips or re-export any time."
-                : "Step 4 — Read the subtitles in the Subtitles panel and fix any words. Then press Export video."
+                : "Read the subtitles in the Subtitles panel and fix any words. Then press Export video."
         }
     }
 
