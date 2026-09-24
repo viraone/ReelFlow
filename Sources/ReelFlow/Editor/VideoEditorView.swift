@@ -201,7 +201,7 @@ struct VideoEditorView: View {
                                      height: hug.height + (panelDrag?.height ?? 0))
             VStack(alignment: .leading, spacing: 10) {
                 header
-                coachLine
+                if showsCoachLine { coachLine }
                 HStack(alignment: .top, spacing: 10) {
                     rail
                     if showPanel && !onRight {
@@ -626,7 +626,14 @@ struct VideoEditorView: View {
 
     // MARK: Coach line
 
-    /// One sentence about what's happening or what to do next.
+    /// One line about what's happening: progress, a result, an error, or
+    /// a note with its undo. It isn't there at all when there's nothing to
+    /// say; the tools explain themselves.
+    private var showsCoachLine: Bool {
+        if case .idle = model.phase { return model.note != nil }
+        return true
+    }
+
     private var coachLine: some View {
         HStack(spacing: 10) {
             switch model.phase {
@@ -663,7 +670,7 @@ struct VideoEditorView: View {
                 dismissButton
             case .idle:
                 Image(systemName: "lightbulb.fill").foregroundStyle(accent.opacity(0.9))
-                coachText(model.note ?? nextHint)
+                coachText(model.note ?? "")
                 if let action = model.noteAction {
                     Button(action.title, action: action.run)
                         .buttonStyle(.plain)
@@ -706,22 +713,6 @@ struct VideoEditorView: View {
             .foregroundStyle(.white.opacity(0.4))
             .help("Dismiss")
     }
-
-    private var nextHint: String {
-        switch currentStep {
-        case .importClips:
-            "Press Import clips (top right) or drop your video files here."
-        case .trim:
-            "Press Play to watch. Stop where you want to cut, then use Split, Cut before or Cut after in the Trim panel. When it looks right, press Auto-subtitle under the video."
-        case .captions:
-            "Press Auto-subtitle under the video to transcribe your takes."
-        case .export:
-            hasExport
-                ? "All done. Import more clips or re-export any time."
-                : "Read the subtitles in the Subtitles panel and fix any words. Then press Export video."
-        }
-    }
-
     // MARK: Preview
 
     private func preview(height: CGFloat) -> some View {
