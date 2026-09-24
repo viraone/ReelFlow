@@ -1295,7 +1295,7 @@ struct VideoEditorView: View {
     // nor than the picture at its floor with the bar under it; the grip's
     // range is whatever the row is taller than that right now.
     static let railItemHeight: CGFloat = 44
-    static let railSpacing: CGFloat = 3
+    static let railSpacing: CGFloat = 8
     static let railPadding: CGFloat = 6
     static let previewMinHeight: CGFloat = 160
     static let canvasBarHeight: CGFloat = 44
