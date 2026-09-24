@@ -759,7 +759,7 @@ struct VideoEditorView: View {
             ForEach(snapGuides, id: \.self) { guide in
                 snapGuideLine(guide, width: width, height: height)
             }
-            if hasClips {
+            if hasClips && !showSafeZone {
                 VStack {
                     Spacer()
                     HStack(spacing: 4) {
