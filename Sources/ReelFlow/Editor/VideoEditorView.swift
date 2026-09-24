@@ -1031,7 +1031,8 @@ struct VideoEditorView: View {
     }
 
     @State private var snapGuides: [SnapGuide] = []
-    private static let snapColor = Color(red: 0.35, green: 0.9, blue: 0.5)
+    /// System green for the guide lines when a dragged title snaps.
+    private static let snapColor = Color.green
     @AppStorage("reelflowSafeZone") private var showSafeZone = false
 
     /// Pull a dragged title or picture onto the spots that matter: snug
@@ -1467,8 +1468,8 @@ struct VideoEditorView: View {
     /// Pulling the timeline taller grows both, the frames faster.
     private var clipHeight: CGFloat { 84 + CGFloat(timelineExtra) }
     private var filmHeight: CGFloat { 56 + CGFloat(timelineExtra) * 0.7 }
-    /// iMovie's yellow for the loud bits.
-    private static let loud = Color(red: 1.0, green: 0.8, blue: 0.25)
+    /// System yellow for the loud bits, the way iMovie marks them.
+    private static let loud = Color.yellow
 
     /// Ruler, subtitles and clips share one width, so one playhead runs
     /// through all of them and one drag scrubs anywhere.
@@ -2546,7 +2547,7 @@ struct VideoEditorView: View {
     private func styleTile(_ preset: SubtitleStylePreset, selected: Bool, compact: Bool) -> some View {
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: compact ? 8 : 10, style: .continuous)
-                .fill(Color(white: 0.62))
+                .fill(Color.gray)
             CaptionLayerView(text: SubtitleStylePreset.sampleText, highlight: preset.sampleHighlight,
                              style: preset.style, placement: .fitted)
                 .allowsHitTesting(false)
@@ -2731,10 +2732,10 @@ struct VideoEditorView: View {
             .disabled(model.phase.isBusy)
     }
 
-    /// The VEED-green action, "Auto-subtitle in English": a pill the size
-    /// of the header's Import and Export buttons, not a full-width bar.
+    /// The big action, "Auto-subtitle in English": a pill the size of the
+    /// header's Import and Export buttons, not a full-width bar, in the
+    /// same system yellow as the Subtitles tool on the rail.
     private var autoSubtitleButton: some View {
-        let lime = Color(red: 0.78, green: 0.95, blue: 0.40)
         let language = SubtitleLanguages.name(of: model.spokenLocale)
         let title = hasCaptions ? "Re-subtitle in \(language)" : "Auto-subtitle in \(language)"
         return Button { model.generateCaptions() } label: {
@@ -2747,7 +2748,7 @@ struct VideoEditorView: View {
             .foregroundStyle(Color.black.opacity(0.85))
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(lime))
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.yellow))
         }
         .buttonStyle(.plain)
         .disabled(model.phase.isBusy)
