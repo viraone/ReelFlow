@@ -15,6 +15,10 @@ struct VideoEditorView: View {
     /// picks one, so the panel follows the current step at first.
     @State private var chosenTool: Tool?
     @State private var panelHidden = false
+    /// The rail entry the pointer is over, for the hover lift.
+    @State private var hoveredTool: Tool?
+    /// For resolving a system colour to numbers (the open tile's glyph).
+    @Environment(\.self) private var environment
     /// The Trim panel's side of the video. Dragged there by its body; it
     /// snaps flush to whichever edge it's let go nearest, never floating.
     @AppStorage("reelflowTrimOnRight") private var trimOnRight = false
@@ -305,6 +309,24 @@ struct VideoEditorView: View {
             }
         }
 
+        /// Each tool's own colour: the glyph wears it, and the open tool's
+        /// tile fills with it. These are Apple's system colours, the ones
+        /// in Finder tags and the Settings sidebar, so the rail reads like
+        /// the rest of the Mac. The app is always dark, so the dark
+        /// variants show; they also follow Increase Contrast on their own.
+        var tint: Color {
+            switch self {
+            case .clips: .blue         // the primary tool, like the app accent
+            case .trim: .red           // cutting, the same red as Remove
+            case .subtitles: .yellow   // the classic subtitle colour
+            case .style: .purple
+            case .text: .orange
+            case .picture: .pink
+            case .music: .teal
+            case .export: .green       // go
+            }
+        }
+
         var help: String {
             switch self {
             case .clips: "The takes in this video, in the order they play"
@@ -369,7 +391,9 @@ struct VideoEditorView: View {
 
     private func railItem(_ tool: Tool) -> some View {
         let open = tool == activeTool && !panelHidden
+        let hovered = hoveredTool == tool && !open
         let available = tool == .clips || hasClips
+        let tint = tool.tint
         let done: Bool = switch tool {
             case .clips: hasClips
             case .subtitles: hasCaptions
@@ -379,36 +403,69 @@ struct VideoEditorView: View {
             case .picture: model.project?.overlays.contains { $0.kind == .image } ?? false
             case .trim, .style: false
         }
+        // The glyph sits in a small tile of the tool's colour: a soft wash
+        // at rest, a touch brighter under the pointer, solid when open.
+        // On the solid tile the glyph goes black on the light colours
+        // (yellow, green, teal, orange) and white on the deep ones (blue,
+        // red, purple, pink), judged by the colour's actual luminance so
+        // it stays right if the system retunes a colour.
+        let tile = RoundedRectangle(cornerRadius: 7, style: .continuous)
+        let openGlyph = Self.glyphColor(on: tint, in: environment)
         return Button { toggle(tool) } label: {
             VStack(spacing: 4) {
                 Image(systemName: tool.icon)
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 26, height: 20)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(open ? openGlyph : tint)
+                    .frame(width: 30, height: 22)
+                    .background(
+                        tile.fill(open
+                                  ? AnyShapeStyle(LinearGradient(colors: [tint, tint.opacity(0.78)], startPoint: .top, endPoint: .bottom))
+                                  : AnyShapeStyle(tint.opacity(hovered ? 0.30 : 0.18)))
+                    )
+                    .overlay(tile.strokeBorder(open ? Color.white.opacity(0.25) : tint.opacity(hovered ? 0.5 : 0.28), lineWidth: 1))
+                    .shadow(color: tint.opacity(open ? 0.45 : 0), radius: 8, y: 2)
                     .overlay(alignment: .topTrailing) {
                         if done {
-                            Circle().fill(accent).frame(width: 6, height: 6).offset(x: 2, y: -2)
+                            Circle()
+                                .fill(open ? Color.white : tint)
+                                .overlay(Circle().strokeBorder(Color.black.opacity(0.7), lineWidth: 1.5))
+                                .frame(width: 8, height: 8)
+                                .offset(x: 3, y: -3)
                         }
                     }
                 Text(tool.title)
                     .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
+                    .foregroundStyle(open ? tint : Color.white.opacity(hovered ? 0.95 : 0.72))
             }
-            .foregroundStyle(open ? accent : Color.white.opacity(0.75))
             .frame(width: 54, height: Self.railItemHeight)
             .background(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(open ? accent.opacity(0.16) : Color.clear)
+                    .fill(open ? tint.opacity(0.10) : Color.white.opacity(hovered ? 0.05 : 0))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(open ? accent.opacity(0.7) : Color.clear, lineWidth: 1)
+                    .strokeBorder(open ? tint.opacity(0.45) : Color.clear, lineWidth: 1)
             )
+            .animation(.easeOut(duration: 0.15), value: hovered)
         }
         .buttonStyle(.plain)
+        .onHover { inside in
+            if inside { hoveredTool = tool } else if hoveredTool == tool { hoveredTool = nil }
+        }
         .disabled(!available)
         .opacity(available ? 1 : 0.4)
+        .saturation(available ? 1 : 0)
         .help(tool.help)
+    }
+
+    /// Black or white, whichever reads better on a solid fill of `tint`:
+    /// black once the fill's relative luminance passes 0.3, white below.
+    private static func glyphColor(on tint: Color, in environment: EnvironmentValues) -> Color {
+        let rgb = tint.resolve(in: environment)
+        let luminance = 0.2126 * Double(rgb.linearRed) + 0.7152 * Double(rgb.linearGreen) + 0.0722 * Double(rgb.linearBlue)
+        return luminance > 0.3 ? Color.black.opacity(0.85) : .white
     }
 
     @ViewBuilder private func toolPanel(_ tool: Tool) -> some View {
