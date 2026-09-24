@@ -774,6 +774,24 @@ final class BannerLayoutTests: XCTestCase {
         XCTAssertGreaterThan(Banner.nameY, Banner.dateY)
     }
 
+    /// Not just the anchors: the whole pill of each placeholder title, in the default style, stays out of
+    /// the bands Instagram covers or crops, and the three don't run into each other.
+    func testBannerPillsClearInstagramsBandsAndEachOther() {
+        typealias Safe = VideoEditorModel.SafeZone
+        let render = CGSize(width: 1080, height: 1920)
+        let titles = VideoEditorModel.Banner.titles(style: .default)
+        func pill(_ o: Overlay) -> CGRect {
+            VideoExporter.captionFrame(for: o.captionStyle.display(o.text), style: o.captionStyle, anchor: o.anchor, render: render).pill
+        }
+        let (title, name, date) = (pill(titles.title), pill(titles.name), pill(titles.date))
+        for (label, p) in [("title", title), ("name", name), ("date", date)] {
+            XCTAssertGreaterThan(p.minY / render.height, Safe.clearBottom, "\(label) runs into the caption band or feed crop")
+            XCTAssertLessThan(p.maxY / render.height, 1 - Safe.clearTop, "\(label) runs into the header or feed crop")
+        }
+        XCTAssertLessThan(date.maxY, name.minY, "the date overlaps the name")
+        XCTAssertLessThan(name.maxY, title.minY, "the name overlaps the title")
+    }
+
     /// A 9:16 clip fills a 9:16 frame at 1×; a landscape clip needs more.
     func testFillZoomIsOneForAClipShapedLikeTheFrame() {
         let render = CGSize(width: 1080, height: 1920)

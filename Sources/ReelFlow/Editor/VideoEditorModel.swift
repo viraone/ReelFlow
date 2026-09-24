@@ -757,15 +757,30 @@ final class VideoEditorModel: ObservableObject {
     /// the frame: the caption and username along the bottom, the status
     /// bar and "Reels" label along the top, the like/share rail down the
     /// right. Anything there is hidden on the phone.
+    ///
+    /// Meta only publishes a safe zone for ads (top 14%, bottom 35%, 6%
+    /// each side); an organic Reel has no call-to-action bar, so its
+    /// real margins are smaller. These are the 2026 measurements of the
+    /// organic player that third-party safe-zone guides agree on, taken
+    /// at the generous end. Checked September 2026.
     enum SafeZone {
-        static let bottom = 0.16
-        static let top = 0.08
+        /// Username, Follow, caption and audio line: 400–450 px of 1920.
+        static let bottom = 0.22
+        /// Status bar and the Reels header: 150–220 px of 1920.
+        static let top = 0.11
+        /// Like, comment, share, more and the audio disc: about 120 px of 1080.
         static let right = 0.12
-        /// The rail of buttons runs up this stretch of the right edge.
-        static let railRange = 0.16...0.58
-        /// A 9:16 video posted to the feed (not as a Reel) is shown at
-        /// 4:5: Instagram cuts this share off the top and off the bottom.
+        /// The rail of buttons runs up this stretch of the right edge,
+        /// from the caption band to a little under halfway up.
+        static let railRange = 0.22...0.58
+        /// A 9:16 video shown in the feed is cropped to 4:5 (this share
+        /// off the top and the bottom), and the profile grid crops it to
+        /// 3:4 (12.5% off each end), which this covers too.
         static let feedCrop = 0.148
+        /// The band a title can sit in and be seen everywhere: under the
+        /// Reel's own controls and inside the feed crop.
+        static var clearBottom: Double { max(bottom, feedCrop) }
+        static var clearTop: Double { max(top, feedCrop) }
     }
 
     /// Where the banner's titles go, as bottom-up shares of the frame:
@@ -773,8 +788,18 @@ final class VideoEditorModel: ObservableObject {
     /// Reel, so the same export works posted either way.
     enum Banner {
         static let titleY = 0.80
-        static let nameY = 0.30
-        static let dateY = 0.215
+        static let nameY = 0.35
+        static let dateY = 0.265
+
+        /// The placeholder titles, ready to be typed over.
+        static func titles(style: SubtitleStylePreset) -> (title: Overlay, name: Overlay, date: Overlay) {
+            (Overlay(kind: .text, text: "LIVE STAND-UP COMEDY", anchor: CaptionAnchor(x: 0.5, y: titleY),
+                     style: style.rawValue, scale: 1.15),
+             Overlay(kind: .text, text: "YOUR NAME", anchor: CaptionAnchor(x: 0.5, y: nameY),
+                     style: style.rawValue, scale: 1.6),
+             Overlay(kind: .text, text: "JUNE 27 · SEATTLE", anchor: CaptionAnchor(x: 0.5, y: dateY),
+                     style: style.rawValue, scale: 0.9))
+        }
     }
 
     /// The picture's place in the frame for a clip, in render space with
@@ -802,13 +827,7 @@ final class VideoEditorModel: ObservableObject {
     /// adds their logo from Picture.
     func addBanner() {
         guard let p = project, !p.clips.isEmpty else { return }
-        let style = stylePreset
-        let top = Overlay(kind: .text, text: "LIVE STAND-UP COMEDY", anchor: CaptionAnchor(x: 0.5, y: Banner.titleY),
-                          style: style.rawValue, scale: 1.15)
-        let name = Overlay(kind: .text, text: "YOUR NAME", anchor: CaptionAnchor(x: 0.5, y: Banner.nameY),
-                           style: style.rawValue, scale: 1.6)
-        let when = Overlay(kind: .text, text: "JUNE 27 · SEATTLE", anchor: CaptionAnchor(x: 0.5, y: Banner.dateY),
-                           style: style.rawValue, scale: 0.9)
+        let (top, name, when) = Banner.titles(style: stylePreset)
         let render = renderSize
         Task {
             // The fill zoom depends on each clip's own shape, read from its file first so the whole banner is one

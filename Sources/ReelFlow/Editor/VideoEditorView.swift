@@ -996,9 +996,9 @@ struct VideoEditorView: View {
             targets.append((edge: rect.maxY, top: picture.minY - gap, guide: picture.minY))   // snug under the picture
             targets.append((edge: rect.minY, top: picture.maxY + gap, guide: picture.maxY))   // snug above it
         }
-        let safeBottom = render.height * VideoEditorModel.SafeZone.bottom
+        let safeBottom = render.height * VideoEditorModel.SafeZone.clearBottom
         targets.append((edge: rect.minY, top: safeBottom, guide: safeBottom))
-        let safeTop = render.height * (1 - VideoEditorModel.SafeZone.top)
+        let safeTop = render.height * (1 - VideoEditorModel.SafeZone.clearTop)
         targets.append((edge: rect.maxY, top: safeTop, guide: safeTop))
         // The other titles and pictures on screen: stack snug under or
         // above one, or line up with its edges.
@@ -1034,8 +1034,8 @@ struct VideoEditorView: View {
 
     /// Shades the parts of the frame Instagram covers with its own UI.
     private func safeZoneShade(width: CGFloat, height: CGFloat) -> some View {
-        let bottom = height * max(VideoEditorModel.SafeZone.bottom, VideoEditorModel.SafeZone.feedCrop)
-        let top = height * max(VideoEditorModel.SafeZone.top, VideoEditorModel.SafeZone.feedCrop)
+        let bottom = height * VideoEditorModel.SafeZone.clearBottom
+        let top = height * VideoEditorModel.SafeZone.clearTop
         let right = width * VideoEditorModel.SafeZone.right
         let rail = VideoEditorModel.SafeZone.railRange
         let shade = Color.red.opacity(0.28)
