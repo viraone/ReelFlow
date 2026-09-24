@@ -1148,9 +1148,9 @@ struct VideoEditorView: View {
             HStack(spacing: 2) {
                 barButton("minus.magnifyingglass", help: "Zoom the picture out (or pinch on the video)") { model.zoom(by: 1 / 1.15) }
                 Text(String(format: "%.1f×", zoom))
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
                     .foregroundStyle(zoom > 1.01 ? accent : Color.white.opacity(0.7))
-                    .frame(width: 34)
+                    .frame(width: 40)
                 barButton("plus.magnifyingglass", help: "Zoom the picture in — crops from the centre (or pinch on the video)") { model.zoom(by: 1.15) }
                 barButton("rectangle.arrowtriangle.2.inward", full ? "Fill" : nil,
                           help: "Zoom just enough that the picture fills the whole \(format.ratio) frame with no black bars") { model.zoomToFill() }
@@ -1174,7 +1174,7 @@ struct VideoEditorView: View {
     }
 
     private var barDivider: some View {
-        Rectangle().fill(Color.white.opacity(0.1)).frame(width: 1, height: 20).padding(.horizontal, 4)
+        Rectangle().fill(Color.white.opacity(0.1)).frame(width: 1, height: 22).padding(.horizontal, 4)
     }
 
     private func barButton(_ icon: some View, _ title: String? = nil, chevron: Bool = false, help: String, action: @escaping () -> Void) -> some View {
@@ -1182,15 +1182,15 @@ struct VideoEditorView: View {
             HStack(spacing: 5) {
                 icon
                 if let title {
-                    Text(title).font(.system(size: 11, weight: .semibold, design: .monospaced)).lineLimit(1)
+                    Text(title).font(.system(size: 13, weight: .semibold, design: .monospaced)).lineLimit(1)
                 }
                 if chevron {
-                    Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).foregroundStyle(Color.white.opacity(0.5))
+                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(Color.white.opacity(0.5))
                 }
             }
             .foregroundStyle(Color.white.opacity(0.88))
             .padding(.horizontal, title == nil ? 7 : 9)
-            .frame(height: 28)
+            .frame(height: 32)
             .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.white.opacity(0.06)))
         }
         .buttonStyle(.plain)
@@ -1199,7 +1199,7 @@ struct VideoEditorView: View {
 
     /// Helper for String symbols - wraps them in an Image with the same styling as before
     private func barButton(_ symbol: String, _ title: String? = nil, chevron: Bool = false, help: String, action: @escaping () -> Void) -> some View {
-        let icon = Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
+        let icon = Image(systemName: symbol).font(.system(size: 13, weight: .semibold))
         return self.barButton(icon, title, chevron: chevron, help: help, action: action)
     }
 
@@ -1224,9 +1224,9 @@ struct VideoEditorView: View {
                         ),
                         style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [4, 3])
                     )
-                    .frame(width: 14, height: 14)
+                    .frame(width: 16, height: 16)
             } else {
-                Image(systemName: format.symbol).font(.system(size: 11, weight: .semibold))
+                Image(systemName: format.symbol).font(.system(size: 13, weight: .semibold))
             }
         }
     }
