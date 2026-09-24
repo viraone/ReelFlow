@@ -316,7 +316,7 @@ struct VideoEditorView: View {
         /// variants show; they also follow Increase Contrast on their own.
         var tint: Color {
             switch self {
-            case .clips: .blue         // the primary tool, like the app accent
+            case .clips: .blue         // the primary tool
             case .trim: .red           // cutting, the same red as Remove
             case .subtitles: .yellow   // the classic subtitle colour
             case .style: .purple

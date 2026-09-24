@@ -11,11 +11,14 @@ struct ReelFlowApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = VideoEditorModel()
 
-    /// The colour the editor's controls are tinted with: Apple's system
-    /// blue, the same blue as the rest of the Mac, so selection, links and
-    /// the play button read as native. The tool rail's other tints are
-    /// system colours too, and Clips shares this one.
-    static let accent = Color.blue
+    /// The colour the editor's controls are tinted with: the accent colour
+    /// the user picked in System Settings › Appearance, so selection, links
+    /// and the play button match the rest of their Mac. Blue for most
+    /// people; purple, pink, red, orange, yellow, green or graphite for the
+    /// rest, and it follows live if they change it. Solid fills of it carry
+    /// black text and glyphs, which read on every one of those. The tool
+    /// rail's tints are fixed system colours and don't follow.
+    static let accent = Color(nsColor: .controlAccentColor)
 
     @State private var dropTargeted = false
 
